@@ -1,0 +1,129 @@
+CREATE TABLE `zoho_account_info` (
+  `id` int(8) unsigned NOT NULL AUTO_INCREMENT,
+  `customer_id` int(10) unsigned DEFAULT NULL,
+  `access_token` varchar(255) DEFAULT NULL,
+  `refresh_token` varchar(255) DEFAULT NULL,
+  `instance_url` varbinary(100) DEFAULT NULL,
+  `pass_expired` tinyint(4) DEFAULT NULL,
+  `created_date` timestamp NULL DEFAULT NULL,
+  `updated_date` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `active` tinyint(4) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `customer_id` (`customer_id`),
+  KEY `active` (`active`)
+) ENGINE=InnoDB AUTO_INCREMENT=398 DEFAULT CHARSET=latin1
+
+
+CREATE TABLE `zoho_account_setup` (
+  `id` int(8) unsigned NOT NULL AUTO_INCREMENT,
+  `customer_id` int(10) unsigned DEFAULT NULL,
+  `zoho_id` varchar(100) DEFAULT NULL,
+  `caller_id` tinyint(1) DEFAULT NULL,
+  `call_begin` tinyint(1) DEFAULT NULL,
+  `lead_adding` tinyint(1) DEFAULT NULL,
+  `zoho_compaign` tinyint(1) DEFAULT NULL,
+  `local_number_format` tinyint(1) DEFAULT NULL,
+  `lead_object` tinyint(1) DEFAULT NULL,
+  `edit_conflicts` tinyint(1) DEFAULT NULL,
+  `region_name` tinyint(1) DEFAULT NULL,
+  `zoho_edit_mode` tinyint(1) DEFAULT NULL,
+  `zoho_overwrite_field` tinyint(1) DEFAULT NULL,
+  `limit_data_access` tinyint(1) DEFAULT NULL,
+  `created_date` timestamp NULL DEFAULT NULL,
+  `updated_date` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `customer_id` (`customer_id`),
+  KEY `zoho_id` (`zoho_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=30 DEFAULT CHARSET=latin1
+
+
+CREATE TABLE `zoho_call_update` (
+  `id` int(8) unsigned NOT NULL AUTO_INCREMENT,
+  `customer_id` int(10) unsigned DEFAULT NULL,
+  `zoho_id` varchar(100) DEFAULT NULL,
+  `cd_sid` varchar(255) DEFAULT NULL,
+  `zoho_update` varchar(100) DEFAULT NULL,
+  `created_date` timestamp NULL DEFAULT NULL,
+  `updated_date` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `customer_id` (`customer_id`),
+  KEY `zoho_id` (`zoho_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=latin1
+
+CREATE TABLE `zoho_default_lead_owner` (
+  `id` int(8) unsigned NOT NULL AUTO_INCREMENT,
+  `customer_id` int(10) unsigned DEFAULT NULL,
+  `zoho_id` varchar(100) DEFAULT NULL,
+  `lead_owner_type` varchar(100) DEFAULT NULL,
+  `created_date` timestamp NULL DEFAULT NULL,
+  `updated_date` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `customer_id` (`customer_id`),
+  KEY `zoho_id` (`zoho_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=21 DEFAULT CHARSET=latin1
+
+CREATE TABLE `zoho_general_log` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `customer_id` int(10) DEFAULT NULL,
+  `zoho_id` int(10) DEFAULT NULL,
+  `table_name` varchar(255) DEFAULT NULL,
+  `message_text` varchar(255) DEFAULT NULL,
+  `request` varchar(1000) DEFAULT NULL,
+  `response` varchar(1000) DEFAULT NULL,
+  `created_date` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=293 DEFAULT CHARSET=latin1
+
+CREATE TABLE `zoho_lead_options` (
+  `id` int(8) unsigned NOT NULL AUTO_INCREMENT,
+  `customer_id` int(10) unsigned DEFAULT NULL,
+  `zoho_id` varchar(100) DEFAULT NULL,
+  `new_caller_lead` tinyint(1) DEFAULT NULL,
+  `total_length` tinyint(1) DEFAULT NULL,
+  `call_time` varchar(100) DEFAULT NULL,
+  `default_status` varchar(100) DEFAULT NULL,
+  `email_address` varchar(100) DEFAULT NULL,
+  `record_type` varchar(100) DEFAULT NULL,
+  `post_call_data` enum('','start','end','delay') DEFAULT NULL,
+  `second_delay` int(11) DEFAULT '0',
+  `campaign` text,
+  `tracking_source` varchar(100) DEFAULT NULL,
+  `tracking_number` varchar(100) DEFAULT NULL,
+  `recieving_number` varchar(100) DEFAULT NULL,
+  `menu_keypress` varchar(100) DEFAULT NULL,
+  `created_date` timestamp NULL DEFAULT NULL,
+  `updated_date` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `customer_id` (`customer_id`),
+  KEY `zoho_id` (`zoho_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=18 DEFAULT CHARSET=latin1
+
+CREATE TABLE `zoho_mapping` (
+  `id` int(8) unsigned NOT NULL AUTO_INCREMENT,
+  `customer_id` int(10) unsigned DEFAULT NULL,
+  `zoho_id` varchar(100) DEFAULT NULL,
+  `call_field` varchar(100) DEFAULT NULL,
+  `zoho_field` varchar(100) DEFAULT NULL,
+  `default_value` varchar(100) DEFAULT NULL,
+  `created_date` timestamp NULL DEFAULT NULL,
+  `updated_date` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `mapping_type` enum('lead','field','task','contact','campaign') DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `customer_id` (`customer_id`),
+  KEY `zoho_id` (`zoho_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=333 DEFAULT CHARSET=latin1
+
+
+CREATE TABLE `zoho_user_assignment` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `zoho_id` int(10) DEFAULT NULL,
+  `customer_id` int(10) unsigned DEFAULT NULL,
+  `receiving_number` varchar(50) DEFAULT NULL,
+  `zoho_user_id` varchar(50) DEFAULT NULL,
+  `zoho_user_name` varchar(100) DEFAULT NULL,
+  `created_datetime` datetime DEFAULT NULL,
+  `updated_datetime` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `customer_id` (`customer_id`),
+  KEY `zoho_id` (`zoho_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=27 DEFAULT CHARSET=latin1

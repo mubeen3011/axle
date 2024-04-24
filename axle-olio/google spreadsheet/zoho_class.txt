@@ -1,0 +1,1615 @@
+<?php
+
+class ZohoApi extends PDB{
+
+        var $pdb;
+        var $returnType = PDO::FETCH_OBJ;
+        
+    function is_login(){
+    if (isset($_SESSION['user']['id']))
+    return $_SESSION['user']['id'];
+    else return false;
+    }
+    function setcid($cid){
+    if (isset($cid))
+    $this->cid = $cid;
+    }
+
+
+    public static $redirect_url = "https://app.avidtrak2.com/accounts/integrate/zoho/zoho_setup.php";
+   // public static $custom_field_profile_id = null;
+  //  public static $custom_field_permission_id = null;
+    public static $is_zoho_setting_active = 1;//ng_user_setting table set 1 if zoho connect app
+    public static $is_zoho_setting_inactive = 0;//ng_user_setting table set 1 if not zoho connect app
+    public static $is_zoho_id = null;
+    public static $start = "start";
+    public static $end = "end";
+    public static $cd_zoho_update = null;
+    // public static  $instance_url = ''; 
+    // public static  $access_token = '';
+    // public static  $refresh_token = '';  
+    // public static  $updated_date = ''; 
+    function get_zoho($url, $method, $data, $header = "Accept: application/x-www-form-urlencoded"){
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $header);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    $response = curl_exec($ch);
+    $error = curl_error($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    // Check HTTP status code
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    
+    if ($http_code == 200 || $http_code == 201 || $http_code == 204) {
+        return ["status" => "success", "msg" => $http_code, "response" => json_decode($response)];
+    } else {
+        return ["status" => "fail", "msg" => "$http_code", "response" => json_decode($response)];
+    }
+    curl_close($ch);
+
+    }
+
+    function session_get_zoho($refrash_token, $url){
+        if(isset($refrash_token) && !empty($refrash_token) && isset($url) && !empty($url)){
+            $_SESSION["refresh_token_zoho"] = ($refrash_token) ? $refrash_token : "";
+            $_SESSION["instance_url_zoho"] = ($url) ? $url : "";
+        }
+    }
+  
+    function session_unset_zoho(){
+        $_SESSION["access_token_zoho"] = "";
+        $_SESSION["refresh_token_zoho"] = "";
+        $_SESSION["instance_url_zoho"] = "";
+        $_SESSION["instance_url_zoho"] = "";
+    }
+
+
+    //************** zoho checking app connected aur not***************/
+    function get_zoho_connected_app(){
+
+    $customer_id = $_SESSION['user']['id'];
+    $sql = "SELECT zoho_account_info.active as active, nj_user.userid as user_id, nj_user.contact as contact, zoho_account_info.instance_url as instance_url, nj_user.email as email from zoho_account_info 
+    INNER JOIN nj_user on zoho_account_info.customer_id = nj_user.id 
+    where zoho_account_info.customer_id = :customer_id";
+    $bind = array('customer_id' => $customer_id);
+    $response = $this->query($sql, $bind);
+    if ($response) {
+        return ["status" => "success", "response" => $response[0], "status_active" => $response[0]['active']];
+    } else {
+        return ["status" => "false", "response" => $response];
+    }
+    }
+    //************** zoho checking app connected aur not end ***************/
+
+
+    //************** zoho connected app status active deactive insert update ***************/
+    function connected_app_status_active_deactive($status){
+
+    $customer_id = $_SESSION['user']['id'];
+    $status_val = null;
+    $status_msg = "";
+    if ($status == 1) {
+        $status_val = 0;
+        $status_msg = "Integration has been paused";
+    }
+    else{
+        $status_val = 1;
+        $status_msg = "Integration has been Activated";
+    }
+
+    $sql = "SELECT * from zoho_account_info where customer_id = :customer_id";
+    $bind = array('customer_id' => $customer_id);
+    $response = $this->query($sql, $bind);
+    if ($response) {
+        $sql_account_setup_update = "update zoho_account_info set active = :active where customer_id = :customer_id limit 1";
+        $bind = array(
+            'active' => $status_val,
+            'customer_id' => $customer_id,
+        );
+        $result = $this->query($sql_account_setup_update, $bind);
+        if ($result) {
+            return ["status" => "success", "msg" => $status_msg, "response" => $status_val];
+        }
+    }
+
+
+
+    }
+    //************** zoho connected app status active deactive insert update ***************/
+
+
+    //************** zoho get admin credentials from db ***************/
+    function get_client_or_secret(){
+
+    $sql = "SELECT * from tbl_default_values where OptionName in ('zoho_client_id', 'zoho_client_secret') AND Type='zoho_credentials'";
+    $response = $this->query($sql);
+    $zoho_clientid = $response[0]['OptionValue'];
+    $zoho_clientsecret = $response[1]['OptionValue'];
+    return array("client_id" => $zoho_clientid, "client_secret" => $zoho_clientsecret);
+    }
+    //************** zoho get admin credentials from db end***************/
+
+
+    function get_client_connected_app_access($customerId=false){
+
+    $customer_id = $customerId?$customerId:$_SESSION['user']['id'];
+    $sql = "SELECT * from zoho_account_info where customer_id = :customer_id";
+    $bind = array('customer_id' => $customer_id);
+    $response = $this->query($sql, $bind);
+    if ($response) {
+
+        $instance_url = $response[0]['instance_url'];
+        $refresh_token = $response[0]['refresh_token'];
+        self::session_get_zoho($refresh_token, $instance_url);
+         
+    } else {
+        return false;
+    }
+
+    }
+
+    function isSet_session($customerId=false){
+        
+        $customer_id = $customerId?$customerId:$_SESSION['user']['id'];
+        if(!isset($_SESSION['refresh_token_zoho']) && !isset($_SESSION['instance_url_zoho'])){
+            $this->get_client_connected_app_access($customer_id);
+        } 
+    
+    }
+
+
+    //************** zoho get client credentials from db end***************/
+
+    function get_refresh_token($customerId=false){
+    
+     $customer_id = $customerId?$customerId:$_SESSION['user']['id'];
+     self::isSet_session();
+     if (isset($_SESSION['refresh_token_zoho']) && !empty($_SESSION['refresh_token_zoho'])) {
+     $admin_credentials = $this->get_client_or_secret();
+
+     if (isset($admin_credentials['client_id']) && isset($admin_credentials['client_secret'])) {
+        
+         $data = array(
+        'client_id' => $admin_credentials['client_id'],
+        'client_secret' => $admin_credentials['client_secret'],
+        'refresh_token' => $_SESSION['refresh_token_zoho'],
+        'grant_type' => 'refresh_token',
+        'Content-type' => "application/json"
+        );
+       
+        $response_access_token = self::get_zoho("https://accounts.zoho.com/oauth/v2/token", "POST", $data);            
+            
+        if ($response_access_token['status'] == "success") {
+        $_SESSION["access_token_zoho"] = $response_access_token['response']->access_token;
+        $_SESSION["old_date_zoho"] = strtotime(date('Y-m-d H:i:s'));
+        return true;
+            
+        }else{
+        return false;
+        }
+     }
+    }
+
+   }
+     
+    
+
+    function make_connention_zoho($code, $location, $url, $method){
+
+        $customer_id = $_SESSION['user']['id'];
+        /************* checking if client ans secret exist or not  ***************/
+        $admin_credentials = self::get_client_or_secret();
+        
+        if (isset($admin_credentials['client_id']) && isset($admin_credentials['client_secret'])) {
+            $data = array(
+            'redirect_uri' => self::$redirect_url,
+            'client_id' => $admin_credentials['client_id'],
+            'client_secret' => $admin_credentials['client_secret'],
+            'code' => $code,
+            'grant_type' => 'authorization_code',
+            'prompt' => 'consent',
+            'Content-type' => "application/x-www-form-urlencoded"
+        );
+        
+        $response = self::get_zoho($url."/oauth/v2/token", $method, $data);
+       //   echo "<pre>";print_r($response);exit;
+        if ($response["status"] == "success") {
+            $res = $response["response"];
+
+            $insert = "INSERT INTO zoho_account_info (customer_id, access_token, refresh_token, instance_url, created_date, active)
+            VALUES (:customer_id, :access_token, :refresh_token, :instance_url,  NOW(), :active)";
+            $bind = array(
+                'customer_id' => $customer_id,
+                'access_token' => $res->access_token,
+                'refresh_token' => $res->refresh_token,
+                'instance_url' => $res->api_domain,
+                //'created_date' => $this->DateCreated,
+                'active' => 1
+            );
+            $result = $this->query($insert, $bind);
+            $zoho_id = $this->lastInsertId();
+            if ($result) {
+                /**************** add log db *****************/
+                 $db_log = ['request' => array('customer_id' => $customer_id, "zoho_id" => $zoho_id, "type" => "new connection", "table" => "zoho_account_info", "request" => $data, "response" => $response)];
+                 self::add_log($db_log);
+                
+                self::session_get_zoho($res->refresh_token, $res->api_domain);
+                
+                /**************** if zoho app is connected nj_user_setting column isZoho is 1 *****************/
+                self::update_nj_user_setting($customer_id, self::$is_zoho_setting_active, $zoho_id);
+
+                /**************** create custom fields into Zoho *****************/
+                // $custom_field_create = self::custom_field_create($saleforce_id);
+                return array("msg" => "app has been connected");
+            } else {
+                return array("msg" => "app has not connected");
+            }
+         }
+
+        }
+    }
+
+
+
+function update_nj_user_setting($cid, $active_inactive, $zoho_id = null){
+        if (isset($cid) && !empty($cid)) {
+            $sql = "UPDATE nj_user_setting SET is_ZohoUser=:is_zoho_setting WHERE cid=:cid";
+            $bind = array(
+                'is_zoho_setting' => $active_inactive,
+                'cid' => $cid
+            );
+            $res = $this->query($sql, $bind);
+            if ($res) {
+
+                 $db_log = ['request' => array('customer_id' => $cid, "zoho_id" => $zoho_id, "type" => "is ZohoUser column active and inactive", "table" => "nj_user_setting", "request" => $bind, "response" => array("msg" => "zoho status inactive from nj_user_setting"))];
+                 self::add_log($db_log);
+                return "1";
+            }
+
+        }
+    }
+
+
+
+// function custom_field_create($salesforce_id){
+//             $customer_id = $_SESSION['user']['id'];
+//             $arr = array();
+//             //leads fields
+//             $arr['Lead']['Lead.agent_phone_number__c'] = array("label" => "Agent Phone Number", "description" => "Receiving Phone Number of agent", "required" => false, "externalId" => false, "type" => "Phone");
+//             $arr['Lead']['Lead.call_status__c'] = array("label" => "Call Status", "description" => "Call status", "required" => false, "externalId" => false, "type" => "Text", "length" => "100");
+//             $arr['Lead']['Lead.call_datetime__c'] = array("label" => "Call Date Time", "description" => "Date Time of Incoming Call", "required" => false, "externalId" => false, "type" => "DateTime");
+//             $arr['Lead']['Lead.tracking_number__c'] = array("label" => "Tracking Number", "description" => "Tracking Number", "required" => false, "externalId" => false, "type" => "Text", "length" => "100");
+//             //campaign field
+//             $arr['Campaign']['Campaign.campaign_number__c'] = array("label" => "Campaign Number", "description" => "Campaign phone number", "required" => false, "externalId" => false, "type" => "Phone");
+
+//             //task fields
+//             $arr['Activity']['Activity.call_id__c'] = array("label" => "Call Id", "description" => "Incoming Call Id", "required" => false, "externalId" => false, "type" => "Text", "length" => '100');
+//             $arr['Activity']['Activity.phone_number__c'] = array("label" => "Phone Number", "description" => "Receiving Phone Number", "required" => false, "externalId" => false, "type" => "Phone");
+//             $arr['Activity']['Activity.call_status__c'] = array("label" => "Call Status", "description" => "Call status", "required" => false, "externalId" => false, "type" => "Text", "length" => "100");
+//             $arr['Activity']['Activity.call_datetime__c'] = array("label" => "Call Date Time", "description" => "Date Time of Incoming Call", "required" => false, "externalId" => false, "type" => "DateTime");
+//             $arr['Activity']['Activity.call_duration__c'] = array("label" => "Call Duration", "description" => "Duration of Incoming Call", "required" => false, "externalId" => false, "type" => "Text", "length" => '100');
+//             $arr['Activity']['Activity.keyword__c'] = array("label" => "keyword", "description" => "keyword", "required" => false, "externalId" => false, "type" => "Text", "length" => '255');
+//             $arr['Activity']['Activity.campaign_name__c'] = array("label" => "Campaign Name", "description" => "Campaign Name", "required" => false, "externalId" => false, "type" => "Text", "length" => '255');
+//             $arr['Activity']['Activity.adgroup__c'] = array("label" => "Adgroup", "description" => "Adgroup", "required" => false, "externalId" => false, "type" => "Text", "length" => '255');
+//             $arr['Activity']['Activity.call_recording_url__c'] = array("label" => "Call Recording URL", "description" => "Call Recording URL", "required" => false, "externalId" => false, "type" => "Url");
+//             $arr['Activity']['Activity.label__c'] = array("label" => "label", "description" => "Label Description", "required" => false, "externalId" => false, "type" => "Text", "length" => '255');
+//             $arr['Activity']['Activity.tactic_label__c'] = array("label" => "Tactic Label", "description" => "Tactic Label Description", "required" => false, "externalId" => false, "type" => "Text", "length" => '255');
+//             $arr['Activity']['Activity.description__c'] = array("label" => "Description", "description" => "Description", "required" => false, "externalId" => false, "type" => "Text", "length" => '255');
+
+//             $data = array("Metadata" => $arr);
+//             $fields = array("Lead", "Campaign", "Activity");
+
+//             $response = self::get_refresh_token();
+
+//             if ($response['status'] == "success") {
+
+//                 $access_token = $response['response']->access_token;
+//                 $url = rtrim($response['response']->instance_url, "/") . "/services/data/v55.0/tooling/sobjects/CustomField";
+//                 $headers = array("Authorization: Bearer " . $access_token, 'Content-Type: application/json');
+//                 $custom_field_permission_url = rtrim($response['response']->instance_url, "/") . "/services/data/v54.0/sobjects/FieldPermissions";
+//                 foreach ($fields as $field) {
+
+//                     foreach ($data['Metadata'][$field] as $index => $value) {
+
+//                         $field_array = array("FullName" => $index, "Metadata" => $value);
+
+//                         $create_response = self::get_salesforce($url, "POST", json_encode($field_array), $headers);
+
+//                         $db_log = ['request' => array('customer_id' => $customer_id, "salesforce_id" => $salesforce_id, "table" => "create custom field into salesforce", "request" => $field_array, "response" => $create_response)];
+//                         self::add_log($db_log);
+
+//                         //echo "<pre>";print_r($create_response);
+//                         if ($create_response['status'] == "success") {
+
+//                             if (empty(self::$custom_field_profile_id)) {
+//                                 echo "permission get id ";
+//                                 self::getcustom_field_profile_id($response['response']->instance_url, $access_token);
+//                                 self::getcustom_field_permission_id($access_token, $response['response']->instance_url, self::$custom_field_profile_id);
+//                             }
+
+//                             if (isset(self::$custom_field_permission_id)) {
+//                                 echo "permission set";
+//                                 $field_name = null;
+//                                 if ($field == "Activity") {
+//                                     $break_string = explode(".", $index);
+//                                     $field_name = "Task." . $break_string[1];
+//                                 }
+
+//                                 $field_permission_post = array("ParentId" => self::$custom_field_permission_id, "SobjectType" => ($field == "Activity") ? "Task" : $field, "Field" => ($field == "Activity") ? $field_name : $index, "PermissionsEdit" => true, "PermissionsRead" => true);
+//                                 //echo "<pre>";print_r($field_permission_post);
+//                                 $field_permission_response = self::get_salesforce($custom_field_permission_url, "POST", json_encode($field_permission_post), $headers);
+//                                 $db_log = ['request' => array('customer_id' => $customer_id, "salesforce_id" => $salesforce_id, "type" => $index, "table" => "", "request" => $field_permission_post, "response" => $field_permission_response, "comment" => "set permission salesforce custom fields")];
+//                                 self::add_log($db_log);
+//                                 //echo "<pre>";print_r($field_permission_response);
+//                             }
+
+//                         }
+
+//                     }
+
+//                 }
+//                 return true;
+               
+//             }
+            
+//         }
+
+
+//get custom field profile api
+// function getcustom_field_profile_id($instance_url, $access_token){
+//             $url_profile = rtrim($instance_url, "/") . '/services/data/v55.0/query/?q=SELECT+Id+FROM+Profile+Where+Name=\'System%20Administrator\'';
+//             $headers_profile = array("Authorization: Bearer " . $access_token, 'Content-Type: application/json');
+//             $response_profile = self::get_salesforce($url_profile, "GET", "", $headers_profile);
+//             if ($response_profile['status'] == "success") {
+//                 self::$custom_field_profile_id = $response_profile['response']->records[0]->Id;
+//                 return self::$custom_field_profile_id;
+//             }
+//         }
+
+//get custom field permission api from profile api
+// function getcustom_field_permission_id($access_token, $instance_url, $profile_id){
+
+//             $url_permission = rtrim($instance_url, "/") . '/services/data/v55.0/query/?q=SELECT+Id+FROM+PermissionSet+WHERE+ProfileId=\'' . $profile_id . '\'&encoding=UTF-8';
+//             $headers_permission = array("Authorization: Bearer " . $access_token, 'Content-Type: application/json');
+//             $response_permission = self::get_salesforce($url_permission, "GET", "", $headers_permission);
+
+//             if ($response_permission['status'] == "success") {
+//                 self::$custom_field_permission_id = $response_permission['response']->records[0]->Id;
+//                 return self::$custom_field_permission_id;
+//             }
+//         }
+
+
+function delete_connention_zoho(){
+
+    self::getZohoID();
+    self::session_unset_zoho();
+    $customer_id = $_SESSION['user']['id'];
+        /************* delete zoho connection  ***************/
+    $sql_dlt = "delete from zoho_account_info where customer_id = :customer_id";
+    $bind_dlt = array('customer_id' => $customer_id);
+    $response = $this->query($sql_dlt, $bind_dlt);
+    if ($response) {
+            /**************** if salesforce app is delete nj_user_setting column isSalesforce is 0 *****************/
+        self::update_nj_user_setting($customer_id, self::$is_zoho_setting_inactive, self::$is_zoho_id);
+         $db_log = ['request' => array('customer_id' => $customer_id, "zoho_id" => self::$is_zoho_id, "type" => "delete zoho connection", "table" => "zoho_account_info", "request" => $bind_dlt, "response" => json_encode(array("msg" => "connected app has been removed")))];
+         self::add_log($db_log);
+        return array("msg" => "connected app has been removed");
+        } else {
+            return array("msg" => "connected app has not removed");
+        }
+        
+    }
+
+
+
+function get_call_now($customer_id, $cd_sid, $cd_update_zoho = null){
+    self::$cd_zoho_update = $cd_update_zoho;
+    $sql = "SELECT zoho_lead_options.post_call_data AS post_call_data, zoho_account_setup.lead_object AS lead_object, 
+    zoho_account_setup.zoho_id AS zoho_id, `view_call_logs`.*, zoho_call_update.zoho_update as zoho_update FROM view_call_logs 
+    INNER JOIN zoho_account_info ON view_call_logs.customer_id = zoho_account_info.customer_id
+    INNER JOIN zoho_account_setup ON zoho_account_info.id = zoho_account_setup.zoho_id 
+    INNER JOIN zoho_lead_options ON zoho_account_setup.zoho_id = zoho_lead_options.zoho_id
+    LEFT JOIN zoho_call_update on view_call_logs.cd_sid = zoho_call_update.cd_sid  
+    where view_call_logs.customer_id = :customer_id AND view_call_logs.cd_sid = :cd_sid AND zoho_account_info.active = :active limit 1";
+    $bind = array('customer_id' => $customer_id, 'cd_sid' => $cd_sid, 'active' => 1);
+    $data = $this->query($sql, $bind);
+    return $data;
+    //tpl_call_log
+}
+
+
+function get_owner_id_user_assignment($receiving_number, $customer_id, $zoho_id){
+    $sql = "SELECT * from zoho_user_assignment 
+    where receiving_number = :receiving_number and customer_id = :customer_id and zoho_id = :zoho_id";
+    $bind=array('receiving_number'=>  $receiving_number, 'customer_id'=>$customer_id, 'zoho_id'=>$zoho_id);
+    $data = $this->query($sql,$bind);
+
+    return $data;
+}
+
+function get_owner_id_sf_default_lead_owner($customer_id, $zoho_id){
+    $sql = "SELECT * from zoho_default_lead_owner 
+    where customer_id = :customer_id and zoho_id = :zoho_id";
+    $bind=array('customer_id'=>$customer_id, 'zoho_id'=>$zoho_id);
+    $data = $this->query($sql,$bind);
+
+    return $data;
+    }
+
+
+// this function call set 1 when zoho push call detail success
+function update_call_push($callsid, $status=1){
+    $sql_update = "UPDATE zoho_call_update set zoho_update = :zoho_update where cd_sid = :callsid";
+    $bind = array(
+        'callsid' =>  $callsid,
+        'zoho_update' => $status
+    );
+    $result = $this->query($sql_update,$bind);
+}
+
+
+// check zohoUpdate status 1 if axist 1 will be update zoho push call
+function get_call_push_status($callsid){
+    $sql = "select * from zoho_call_update where cd_sid = :callsid limit 1";
+    $bind = array(
+        'callsid' =>  $callsid,
+    );
+    $result = $this->query($sql,$bind);
+    return $result[0];
+}
+
+
+function insert_call_push($customer_id, $zoho_id, $callsid, $status=1){
+    $insert = "INSERT INTO zoho_call_update (customer_id, zoho_id, cd_sid, zoho_update, created_date)
+    VALUES (:customer_id, :zoho_id, :cd_sid, :zoho_update, NOW())";
+    $bind = array(
+        'customer_id' => $customer_id,
+        'zoho_id' => $zoho_id,
+        'cd_sid' => $callsid,
+        'zoho_update' => $status,
+    );
+    $result = $this->query($insert, $bind);
+    
+}
+
+
+
+
+function push_call_insert($data){
+        /************* checking if view call log exist or not  ***************/
+    if (isset($data) && isset($data['post_call_data']) && $data['post_call_data'] == self::$start) {
+        
+    $access_token = self::is_access_token_exist();
+    if($access_token != null && !empty($access_token)){
+   
+        $access_token = $_SESSION['access_token_zoho'];
+        $instance_url = $_SESSION['instance_url_zoho'];
+        $phone_number = preg_replace('/[^0-9]/', '', $data['cd_leg1telno']);
+        $lead_object_value = $data['lead_object'];
+        $url_search_lead =  rtrim($instance_url, "/").'/crm/v3/coql';
+        $headers_permission = array("Authorization: Bearer ". $access_token, 'Content-Type: application/json');
+        //$response_lead = self::get_salesforce($url_search_lead, "GET", "", $headers_permission);
+        $array_created_response = array();
+        $array_created_request = array();
+   
+        if ($lead_object_value == 0) {
+         
+        $json = array("select_query" => "select Last_Name, First_Name, Email, Lead_Source, Modified_Time, Last_Activity_Time From Leads where (Phone = '$phone_number')");   
+        $response_lead = self::get_zoho($url_search_lead, "POST", json_encode($json), $headers_permission);
+           
+        if ($response_lead['status'] == "success" && isset($response_lead['response']->data)) {
+            
+            $leadSource = isset($response_lead['response']->data[0]->Lead_Source) ? $response_lead['response']->data[0]->Lead_Source : false;
+            $lastDate = isset($response_lead['response']->data[0]->Modified_Time) ? $response_lead['response']->data[0]->Modified_Time : false;
+
+//            echo $lastDate;exit;
+                     
+            if ($data['customer_id'] == 2504 || $data['customer_id'] == 6679) {
+
+                if (strtolower($leadSource) == 'content network') {
+
+                    $datetime = new DateTime($lastDate);
+                    $currentDate = new DateTime(gmdate("Y-m-d\TH:i:s\Z"));
+                    $diff = $currentDate->diff($datetime);
+                    $hours = $diff->h + ($diff->days * 24);
+                    
+            if($hours >= 168) {
+                echo "lead task";
+                    
+                $response_created_lead = self::sf_created_object($instance_url, $data, $headers_permission, $create_lead = "lead");
+                
+            if($response_created_lead['lead_created_response']['status'] == "success"){
+                $lead_id = $response_created_lead['lead_created_response']['response']->data[0]->details->id;
+                $lead_detail = array("lead_id" => $lead_id, "first_name"=>"", "last_name" => "");            
+                $task_created_response = self::sf_created_object($instance_url, $data, $headers_permission, $create_lead = "task", $lead_detail);
+
+                if(empty(self::get_call_push_status($data['cd_sid']))){
+                    self::insert_call_push($data['customer_id'], $data['zoho_id'], $data['cd_sid']);
+                }
+                
+                  self::update_call_push($data['cd_sid']);
+
+                $array_created_response = array('lead_created_response'=>$response_created_lead['lead_created_response'], 'task_created_response'=>$task_created_response['task_created_response']);
+                $array_created_request = array('lead_request_data'=>$response_created_lead['lead_request_data'], 'task_request_data'=>$response_created_lead['task_request_data']); 
+
+                $db_log =['request' => array('customer_id'=> $data['customer_id'], 'zoho_id' => $data['zoho_id'], "type" => "create Lead and task into zoho", "table"=>"push data lead and task into zoho", "request"=>$array_created_request, "response" => $array_created_response)];
+                self::add_log($db_log);
+                return array("status" => "success", "message" => "lead and task successfully created", "request"=>$array_created_request, "response" => $array_created_response);
+                    } else {
+                $db_log =['request' => array('customer_id'=> $data['customer_id'], 'zoho_id' => $data['zoho_id'], "type" => "not create Lead and task into zoho", "table"=>"push data lead and task into zoho", "request"=>$response_created_lead['lead_request_data'], "response" => $response_created_lead['lead_created_response'])];
+                self::add_log($db_log);
+                //return array("status" => "fail", "message" => "lead and task are not created", "request"=>$response_created_lead['lead_request_data'], "response" => $response_created_lead['lead_created_response']);
+        }
+    }
+    else{
+     
+     $lead_id = $response_lead['lead_created_response']['response']->data[0]->details->id;
+     $lead_detail = array("lead_id" => $lead_id, "first_name"=>"", "last_name" => "");
+     
+     $response_created_task = self::sf_created_object($instance_url, $data, $headers_permission, $create_lead = "task", $lead_detail);
+        if($response_created_task['task_created_response']['status'] == "success"){
+            if(empty(self::get_call_push_status($data['cd_sid']))){
+                self::insert_call_push($data['customer_id'], $data['zoho_id'], $data['cd_sid']);
+            }
+           
+          self::update_call_push($data['cd_sid']);
+         $db_log =['request' => array('customer_id'=> $data['customer_id'], 'zoho_id' => $data['zoho_id'], "type" => "create Lead and task into zoho", "table"=>"push data task into zoho", "request"=>$response_created_task['task_request_data'], "response" => $response_created_task['task_created_response'])];
+         self::add_log($db_log);
+         return array("status" => "success", "message" => "task successfully created", "request"=>$response_created_task, "response" => $response_created_task['task_created_response']);
+        }
+        else{
+
+          $db_log =['request' => array('customer_id'=> $data['customer_id'], 'zoho_id' => $data['zoho_id'], "type" => "not create task into zoho", "table"=>"push data lead and task into zoho", "request"=>$response_created_task['lead_request_data'], "response" => $response_created_task['lead_created_response'])];
+          self::add_log($db_log);
+          return array("status" => "fail", "message" => "task are not created", "request"=>$response_created_task['task_request_data'], "response" => $response_created_task['task_created_response']);
+
+        }
+
+            }
+        }
+    }
+        
+            $array_created_request = array();
+            $lead_id = $response_lead['response']->data[0]->id;
+            $first_name = $response_lead['response']->data[0]->First_Name;
+            $last_name = $response_lead['response']->data[0]->Last_Name;
+            $lead_detail = array("lead_id" => $lead_id, "first_name"=>$first_name, "last_name" => $last_name);
+            $task_created_response = self::sf_created_object($instance_url, $data, $headers_permission, $create_lead = "task", $lead_detail);
+
+        if($task_created_response['task_created_response']['status'] == "success"){
+            if(empty(self::get_call_push_status($data['cd_sid']))){
+                self::insert_call_push($data['customer_id'], $data['zoho_id'], $data['cd_sid']);
+            }
+            $array_created_response = array( 'task_created_response'=>$task_created_response['task_created_response']);
+            $array_created_request = array('task_request_data'=>$task_created_response['task_request_data']);
+            self::update_call_push($data['cd_sid']);
+            $db_log =['request' => array('customer_id'=> $data['customer_id'], 'zoho_id' => $data['zoho_id'], "type" => "create Lead and task into zoho", "table"=>"push data task into zoho", "request"=>$task_created_response['task_request_data'], "response" => $task_created_response['task_created_response'])];
+            self::add_log($db_log);
+            return array("status" => "success", "message" => "task successfully created", "request"=>$array_created_request['task_request_data'], "response" => $task_created_response['task_created_response']);
+        }else{
+
+            $db_log =['request' => array('customer_id'=> $data['customer_id'], 'zoho_id' => $data['zoho_id'], "type" => "not create task into zoho", "table"=>"push data lead and task into zoho", "request"=>$task_created_response['task_request_data'], "response" => $task_created_response['task_created_response'])];
+            self::add_log($db_log);
+            return array("status" => "fail", "message" => "task are not created", "request"=>$task_created_response['task_request_data'], "response" => $task_created_response['task_created_response']);
+
+            }
+
+        } else {
+            
+            $response_created_lead = self::sf_created_object($instance_url, $data, $headers_permission, $create_lead = "lead");
+           // echo "<pre>";print_r($response_created_lead);
+            if($response_created_lead['lead_created_response']['status'] == "success"){
+            $lead_id = $response_created_lead['lead_created_response']['response']->data[0]->details->id;
+            $lead_detail = array("lead_id" => $lead_id, "first_name"=>"", "last_name" => "");            
+            $task_created_response = self::sf_created_object($instance_url, $data, $headers_permission, $create_lead = "task", $lead_detail);
+            if(empty(self::get_call_push_status($data['cd_sid']))){
+                self::insert_call_push($data['customer_id'], $data['zoho_id'], $data['cd_sid']);
+            }
+            //echo "<pre>";print_r($task_created_response);exit;
+            $array_created_response = array('lead_created_response'=>$response_created_lead['lead_created_response'], 'task_created_response'=>$task_created_response['task_created_response']);
+            $array_created_request = array('lead_request_data'=>$response_created_lead['lead_request_data'], 'task_request_data'=>$response_created_lead['task_request_data']); 
+            self::update_call_push($data['cd_sid']);
+            return array("status" => "success", "message" => "lead and task successfully created", "request"=>$array_created_request, "response" => $array_created_response);
+
+            }else{
+
+            return array("status" => "fail", "message" => "lead and task are not created", "request"=>$response_created_lead['lead_request_data'], "response" => $response_created_lead['lead_created_response']);
+            }
+        }
+        }
+        elseif ($lead_object_value == 1) {
+           //         //create lead         
+           $response_created_lead = self::sf_created_object($instance_url, $data, $headers_permission, $create_lead = "lead");
+            
+           if($response_created_lead['lead_created_response']['status'] == "success"){
+
+           $lead_id = $response_created_lead['lead_created_response']['response']->data[0]->details->id;
+        
+           $lead_detail = array("lead_id" => $lead_id, "first_name"=>"", "last_name" => "");
+           $task_created_response = self::sf_created_object($instance_url, $data, $headers_permission, $create_lead = "task", $lead_detail);
+           if(empty(self::get_call_push_status($data['cd_sid']))){
+            self::insert_call_push($data['customer_id'], $data['zoho_id'], $data['cd_sid']);
+            }
+            
+            $array_created_response = array('lead_created_response'=>$response_created_lead['lead_created_response'], 'task_created_response'=>$task_created_response['task_created_response']);
+            $array_created_request = array('lead_request_data'=>$response_created_lead['lead_request_data'], 'task_request_data'=>$response_created_lead['task_request_data']);
+            self::update_call_push($data['cd_sid']);
+            $db_log =['request' => array('customer_id'=> $data['customer_id'], 'zoho_id' => $data['zoho_id'], "type" => "create Lead and task into zoho", "table"=>"push data lead and task into zoho", "request"=>json_encode($array_created_request), "response" => json_encode($array_created_response))];
+            self::add_log($db_log);
+            return array("status" => "success", "message" => "lead and task successfully created", "request"=>$array_created_request, "response" => $array_created_response);
+       }else{
+
+           $db_log =['request' => array('customer_id'=> $data['customer_id'], 'zoho_id' => $data['zoho_id'], "type" => "not create Lead and task into zoho", "table"=>"push data lead and task into zoho", "request"=>$response_created_lead['lead_request_data'], "response" => $response_created_lead['lead_created_response'])];
+           self::add_log($db_log);
+           return array("status" => "fail", "message" => "lead and task are not created", "request"=>$response_created_lead['lead_request_data'], "response" => $response_created_lead['lead_created_response']);
+       }
+    }
+  }
+    else{
+        return array("status" => "false", "response" => "access token is empty");
+    }
+        
+    }
+    
+}
+
+
+function push_call_update($data){
+ 
+    $access_token = self::is_access_token_exist();
+    if($access_token != null && !empty($access_token)){
+        $access_token = $_SESSION['access_token_zoho'];
+        $instance_url = $_SESSION['instance_url_zoho'];
+        if(isset($data) && isset($data['post_call_data']) && $data['post_call_data'] == self::$start)
+        {
+            $data_status = self::get_call_push_status($data['cd_sid']);
+            if (isset($data_status) && $data_status["zoho_update"] == 1) {
+                    
+                $response_update_task = self::zoho_updated_object($access_token, $data, $instance_url);
+
+                if($response_update_task['task_update_response']['status'] == "success"){
+                        self::update_call_push($data['cd_sid']);
+                        $db_log =['request' => array('customer_id'=> $data['customer_id'], 'zoho_id' => $data['zoho_id'], "type" => "update task into zoho", "table"=>"update data task into zoho", "request"=>$response_update_task['task_request_data'], "response" => $response_update_task['task_update_response'])];
+                        self::add_log($db_log);
+                        return array("status" => "success", "message" => "task successfully created", "request"=>$response_update_task['task_request_data'], "response" => $response_update_task['task_created_response']);
+                    }else{
+
+                     $db_log =['request' => array('customer_id'=> $data['customer_id'], 'zoho_id' => $data['zoho_id'], "type" => "not update task into zoho", "table"=>"update data task into zoho", "request"=>$response_update_task['lead_request_data'], "response" => $response_update_task['lead_created_response'])];
+                     self::add_log($db_log);
+                     return array("status" => "fail", "message" => "task are not updated", "request"=>$response_update_task['task_request_data'], "response" => $response_update_task['task_created_response']);
+                    }
+                
+            }
+        }
+        else{
+        return array("status" => "false", "response" => "access token is empty");
+        }
+
+    }
+}
+
+
+ function zoho_updated_object($access_token, $data, $instance_url, $lead_detail=null){
+     
+    $call_id = preg_replace('/[^0-9]/', '', $data['cd_tblid']);  //"2400399";
+    $url_search_lead =  rtrim($instance_url, "/").'/crm/v3/coql';
+    $json = array("select_query" => "select Subject, Description From Tasks where (cd_tblid = '$call_id')");
+    $headers_permission = array("Authorization: Bearer " . $access_token, 'Content-Type: application/json');
+    $response_task_exist = self::get_zoho($url_search_lead, "POST", json_encode($json), $headers_permission);
+     
+    if ($response_task_exist['status'] == "success") {
+        
+        if (isset($response_task_exist['response']->data[0]->id) && !empty(isset($response_task_exist['response']->data[0]->id))) {
+            $task_id = $response_task_exist['response']->data[0]->id;
+            
+            $url_create_task = rtrim($instance_url, "/") . '/crm/v3/Tasks/'.$task_id;
+            $zoho_id = $data['zoho_id'];
+            $customer_id = $data['customer_id'];
+            $call_id = $data['cd_tblid']; 
+            $date = date('Y-m-d');
+            $cd_receiving_number = $data['cd_receiving_number'];
+            $owner_detail = self::getOwnerId($cd_receiving_number, $customer_id, $zoho_id);
+
+                 $data_task = array(
+                // "What_Id" => ["name" => $lead_detail['first_name']." ".$lead_detail['last_name'], 'id' => $lead_detail['lead_id']],
+                 "Description" => htmlspecialchars((isset($data['description']) ? $data['description'] : false)), //"hello world", 
+                 "Subject" => "Call",
+                 "cd_tblid" => $data['cd_tblid'], //"2400399";  
+                 'Status' => "Completed",
+                 '$se_module'=> "Leads", 
+                 "Due_Date" => $date,
+                 'Owner' => (isset($owner_detail["owner_id"]) && !empty($owner_detail["owner_id"])) ? $owner_detail["owner_id"] : "", //owner id
+                );
+
+            $mappingField_task = self::setMappingFields($data, "task");
+            $custom_arr_task = array();
+            foreach($mappingField_task as $item) {
+                $custom_arr_task = array_merge($custom_arr_task, $item);
+            }
+
+            $ar1 = array(); 
+            $ar1 = array_merge($data_task, $custom_arr_task);
+            $sJSON1 = array();
+            $sJSON1['data'][] = $ar1;
+
+            $response_created_task = self::get_zoho($url_create_task, "PUT", json_encode($sJSON1), $headers_permission);               
+            return array("task_created_response" => $response_created_task, "task_request_data" => $sJSON1);
+        }
+    }else{
+        echo "data not exist!";
+    }
+        
+
+    }
+
+
+
+function sf_created_object($instance_url, $data, $headers_permission, $name, $lead_detail=null){
+          
+            if ($name == "lead") {
+
+                $url_create_lead = rtrim($instance_url, "/") . '/crm/v3/Leads';
+                $fname_lname_break = explode(' ', $data['cd_callerName']);
+                $phone_number = preg_replace('/[^0-9]/', '', $data['cd_leg1telno']);
+                $zoho_id = $data['zoho_id'];
+                $customer_id = $data['customer_id'];
+                $cd_receiving_number = $data['cd_receiving_number'];
+                $tracking_number = $data['cd_did'];
+                $owner_detail = self::getOwnerId($cd_receiving_number, $customer_id, $zoho_id);
+            
+                //lead mapping field insert
+               // $data_lead = $contactFields;
+
+                $data_lead = array(
+                    'First_Name' => (isset($fname_lname_break[0]) && !empty($fname_lname_break[0])) ? $fname_lname_break[0] : "unknown",
+                    'Last_Name' => (isset($fname_lname_break[1]) && !empty($fname_lname_break[1])) ? $fname_lname_break[1] : $phone_number,
+                    'Company' => "unknown",
+                    'Phone' => $phone_number,
+                    'Mobile' => $phone_number,
+                    'City' => (isset($data['cd_city']) && !empty($data['cd_city'])) ? $data['cd_city'] : "", //"loss angeles",
+                    'State' => (isset($data['cd_state']) && !empty($data['cd_state'])) ? $data['cd_state'] : "", //"CA",
+                    'Owner' => (isset($owner_detail["owner_id"]) && !empty($owner_detail["owner_id"])) ? $owner_detail["owner_id"] : "", //owner id
+                    'Account_Name' => (isset($owner_detail["owner_name"]) && !empty($owner_detail["owner_name"])) ? $owner_detail["owner_name"] : "", //owner name
+                    'PostalCode' => (isset($data['zipcode']) && !empty($data['zipcode'])) ? $data['zipcode'] : "", //"90017",
+                  //  'tracking_number__c' => (isset($tracking_number)) ? $tracking_number : false,
+                );
+
+                $mappingField_lead = self::setMappingFields($data, "lead");
+
+                $custom_arr_lead = array();
+                foreach($mappingField_lead as $item) {
+                    $custom_arr_lead = array_merge($custom_arr_lead, $item);
+                }
+            
+                $ar = array(); 
+                $ar = array_merge($data_lead, $custom_arr_lead);
+                $sJSON = array();
+                $sJSON['data'][]= $ar;
+               
+                $response_created_lead = self::get_zoho($url_create_lead, "POST", json_encode($sJSON), $headers_permission);
+                return array("lead_created_response" => $response_created_lead, "lead_request_data" => $sJSON);
+
+            } else if ($name == "task") {
+                    
+                $url_create_task = rtrim($instance_url, "/") . '/crm/v3/Tasks';
+                $zoho_id = $data['zoho_id'];
+                $customer_id = $data['customer_id'];
+                $call_id = $data['cd_tblid']; //"2400399";
+                $date = date('Y-m-d');
+                $cd_receiving_number = $data['cd_receiving_number'];
+                $owner_detail = self::getOwnerId($cd_receiving_number, $customer_id, $zoho_id);
+
+               //  $arr['Who_Id'] = array('id' => $lead_id);    
+               echo "<pre>";print_r($lead_detail);
+                 $data_task = array(
+                 "What_Id" => ["name" => $lead_detail['first_name']." ".$lead_detail['last_name'], 'id' => $lead_detail['lead_id']],
+                 "Description" => htmlspecialchars((isset($data['description']) ? $data['description'] : false)), //"hello world", 
+                 "Subject" => "Call",
+                 "cd_tblid" => $data['cd_tblid'], //"2400399";  
+                 'Status' => "Completed",
+                 '$se_module'=> "Leads", 
+                 "Due_Date" => $date,
+                 'Owner' => (isset($owner_detail["owner_id"]) && !empty($owner_detail["owner_id"])) ? $owner_detail["owner_id"] : "", //owner id
+                 //   "Call_Start_Time" => "2021-02-23T13:30:00+05:30",  
+                 //  "Call_Type" =>"Outbound", 
+                 // "Call_Duration" => $data['duration'], 
+                 // "Call_Purpose" => "Administrative", 
+                );
+
+                 $mappingField_task = self::setMappingFields($data, "task");
+                 $custom_arr_task = array();
+                 foreach($mappingField_task as $item) {
+                     $custom_arr_task = array_merge($custom_arr_task, $item);
+                 }
+                $ar1 = array(); 
+                $ar1 = array_merge($data_task, $custom_arr_task);
+                $sJSON1 = array();
+                $sJSON1['data'][] = $ar1;
+              
+                $response_created_task = self::get_zoho($url_create_task, "POST", json_encode($sJSON1), $headers_permission);               
+                echo "<pre>";print_r($response_created_task);
+                return array("task_created_response" => $response_created_task, "task_request_data" => $sJSON1);
+            }
+        }
+
+
+public function getMappingFields($data, $field_type) {
+    $sql = "SELECT * FROM zoho_mapping WHERE customer_id = :customer_id AND zoho_id = :zoho_id AND mapping_type = :mapping_type";
+    $bind = array(
+        "customer_id" => $data['customer_id'],
+        "zoho_id" => $data['zoho_id'],
+        "mapping_type" =>  $field_type,
+    );
+    return $this->query($sql, $bind);
+}
+
+
+
+public function setMappingFields($data, $field_type){
+    $mappingFields = self::getMappingFields($data, $field_type);            
+    $contactFields = array();
+    $custom_fields = array();
+
+    foreach ($mappingFields as $mappingField) {
+        $sf_field = $mappingField['call_field'];
+        $avid_field = $mappingField['zoho_field'];
+        $defaultValue = $mappingField['default_value'];
+        $contactFields[$sf_field][$avid_field] = ($data[$mappingField['call_field']]) ? $data[$mappingField['call_field']] : $defaultValue; //if data value exist so those value otherwise defualt value of custom field
+    }
+  
+        $results = array_intersect_key($contactFields, $data);
+
+        if($results){
+            foreach($results as $val){
+                $custom_fields[] = $val;
+            }
+            return $custom_fields;
+        }
+        return false;
+        //return $results;
+}
+
+public function getOwnerId($cd_receiving_number, $customer_id, $zoho_id){
+    $owner_id = null;
+    $owner_name = null;
+    $owner_id_user_assignment = self::get_owner_id_user_assignment($cd_receiving_number, $customer_id, $zoho_id);
+                
+    if (empty($owner_id_user_assignment)) {
+
+        $owner_id_defualt_lead_owner = self::get_owner_id_sf_default_lead_owner($customer_id, $zoho_id);
+        $string_break = explode('_', $owner_id_defualt_lead_owner[0]['lead_owner_type']);
+        $owner_id = $string_break[0];
+        $owner_name = $string_break[1];
+
+    } else {
+        $owner_id = $owner_id_user_assignment[0]['zoho_user_id'];
+    }
+    return array("owner_id" => $owner_id, "owner_name" => $owner_name);
+}
+
+
+        //************** integration option Inserted code***************/
+function insert_zoho_integration_option($checked){
+
+            self::getZohoID();
+            $notification_msg = array();
+            if (isset(self::$is_zoho_id) && !empty(self::$is_zoho_id)) {
+                $customer_id = $_SESSION['user']['id'];
+                $check_value = explode(',', $checked);
+                $caller_id = (in_array("caller_id", $check_value)) ? 1 : 0;
+                $call_begin = (in_array("call_begin", $check_value)) ? 1 : 0;
+                $lead_adding = (in_array("lead_adding", $check_value)) ? 1 : 0;
+                $zoho_compaign = (in_array("saleforce_compaign", $check_value)) ? 1 : 0;
+                $local_number_format = (in_array("local_number_format", $check_value)) ? 1 : 0;
+                $lead_object = (in_array("lead_object", $check_value)) ? 1 : 0;
+                $edit_conflicts = (in_array("edit_conflicts", $check_value)) ? 1 : 0;
+                $region_name = (in_array("region_name", $check_value)) ? 1 : 0;
+                $zoho_edit_mode = (in_array("saleforce_edit_mode", $check_value)) ? 1 : 0;
+                $zoho_overwrite_field = (in_array("saleforce_overwrite_field", $check_value)) ? 1 : 0;
+                $limit_data_access = (in_array("limit_data_access", $check_value)) ? 1 : 0;
+
+                /************* checking if customer id exist or not  ***************/
+                $sql = "SELECT * from zoho_account_setup where customer_id = :customer_id and zoho_id = :zoho_id";
+                $bind = array('customer_id' => $customer_id, 'zoho_id' => self::$is_zoho_id);
+                $response = $this->query($sql, $bind);
+                //$notification_msg = array();
+
+                /************* checking if customer id exist so update otherwise insert  ***************/
+                if (isset($response[0]['customer_id']) && !empty($response[0]['customer_id'])) {
+    $sql_account_setup_update = "UPDATE zoho_account_setup set zoho_id = :zoho_id, caller_id = :caller_id , call_begin = :call_begin , lead_adding = :lead_adding , zoho_compaign = :zoho_compaign , local_number_format = :local_number_format , lead_object = :lead_object , edit_conflicts = :edit_conflicts , region_name = :region_name , zoho_edit_mode = :zoho_edit_mode , zoho_overwrite_field = :zoho_overwrite_field , limit_data_access = :limit_data_access, updated_date = NOW() where customer_id = :customer_id and zoho_id = :zoho_id";
+                    $bind = array(
+                        'caller_id' => $caller_id,
+                        'call_begin' => $call_begin,
+                        'lead_adding' => $lead_adding,
+                        'zoho_compaign' => $zoho_compaign,
+                        'local_number_format' => $local_number_format,
+                        'lead_object' => $lead_object,
+                        'edit_conflicts' => $edit_conflicts,
+                        'region_name' => $region_name,
+                        'zoho_edit_mode' => $zoho_edit_mode,
+                        'zoho_overwrite_field' => $zoho_overwrite_field,
+                        'limit_data_access' => $limit_data_access,
+                        'customer_id' => $customer_id,
+                        'zoho_id' => self::$is_zoho_id,
+                    );
+                    $result = $this->query($sql_account_setup_update, $bind);
+                    if ($result) {
+                        //****** Create Log******//
+
+                        $db_log = ['request' => array('customer_id' => $customer_id, 'zoho_id' => self::$is_zoho_id, "type" => "integration option update record", "table" => "zoho_account_setup", "request" => $bind, "response" => array("msg" => "Setting has been updated"))];
+                        self::add_log($db_log);
+                        $notification_msg = array("msg" => "Setting has been updated");
+                    } else {
+                        $notification_msg = array("msg" => "Setting has not update");
+                    }
+                } else {
+                    $insert = "INSERT INTO zoho_account_setup (customer_id, zoho_id, caller_id, call_begin, lead_adding, zoho_compaign, local_number_format, lead_object, edit_conflicts, region_name, zoho_edit_mode, zoho_overwrite_field, limit_data_access, created_date)
+                    VALUES (:customer_id, :zoho_id, :caller_id, :call_begin, :lead_adding, :zoho_compaign, :local_number_format, :lead_object, :edit_conflicts, :region_name, :zoho_edit_mode, :zoho_overwrite_field, :limit_data_access, NOW())";
+                    $bind = array(
+                        'customer_id' => $customer_id,
+                        'zoho_id' => self::$is_zoho_id,
+                        'caller_id' => $caller_id,
+                        'call_begin' => $call_begin,
+                        'lead_adding' => $lead_adding,
+                        'zoho_compaign' => $zoho_compaign,
+                        'local_number_format' => $local_number_format,
+                        'lead_object' => $lead_object,
+                        'edit_conflicts' => $edit_conflicts,
+                        'region_name' => $region_name,
+                        'zoho_edit_mode' => $zoho_edit_mode,
+                        'zoho_overwrite_field' => $zoho_overwrite_field,
+                        'limit_data_access' => $limit_data_access,
+                        //'created_date'=>$this->DateCreated
+                    );
+                    $result = $this->query($insert, $bind);
+                    if ($result) {
+                        //****** Create Log******//
+
+                        $db_log = ['request' => array('customer_id' => $customer_id, 'zoho_id' => self::$is_zoho_id, "type" => "integration option insert record", "table" => "zoho_account_setup", "request" => $bind, "response" => array("msg" => "Setting has been updated"))];
+                        self::add_log($db_log);
+                        $notification_msg = array("msg" => "Setting has been saved");
+                    } else {
+                        $notification_msg = array("msg" => "Setting has not saved");
+                    }
+                }
+
+                return $notification_msg;
+            } else {
+                $notification_msg = array("msg" => "please login from zoho");
+                return $notification_msg;
+            }
+        }
+    //************** integration option Inserted and updated end ***************/
+
+        //************** integration option get code***************/
+    function insert_zoho_integration_option_edit(){
+        self::getZohoID();
+        if (isset(self::$is_zoho_id) && !empty(self::$is_zoho_id)) {
+            $customer_id = $_SESSION['user']['id'];
+            $sql = "SELECT * from zoho_account_setup where customer_id = :customer_id and zoho_id = :zoho_id";
+            $bind = array('customer_id' => $customer_id, 'zoho_id' => self::$is_zoho_id);
+            return $this->query($sql, $bind);
+        } else {
+            return [];
+        }
+    }
+        //************** integration option get end ***************/
+
+        //************** lead option Inserted ********************/
+    function insert_zoho_lead_option($checked, $params){
+        self::getZohoID();
+        $notification_msg = array();
+        if (isset(self::$is_zoho_id) && !empty(self::$is_zoho_id)) {
+            $customer_id = $_SESSION['user']['id'];
+            $check_value = explode(',', $checked);
+            $new_caller_lead = (in_array("new_caller_lead", $check_value)) ? 1 : 0;
+            $total_length = (in_array("total_length", $check_value)) ? 1 : 0;
+            $time_length = $params['time_length'];
+            $time_smh = $params['time_smh'];
+            $defualt_status = $params['defualt_status'];
+            $email_address = $params['email_address'];
+            $record_type = $params['record_type'];
+            $post_calls_data = $params['post_calls_data'];
+            $second_delay = $params['second_delays'];
+            $campaign = implode(', ', $params['campaign']);
+            $tracking_source = $params['tracking_source'];
+            $tracking_number = $params['tracking_number'];
+            $recieving_number = $params['recieving_number'];
+            $menu_keypress = $params['menu_keypress'];
+
+            // echo $campaign;exit;
+
+            /************* checking if customer id exist or not  ***************/
+            $sql = "SELECT * from zoho_lead_options where customer_id = :customer_id and zoho_id = :zoho_id";
+            $bind = array('customer_id' => $customer_id, 'zoho_id' => self::$is_zoho_id);
+            $response = $this->query($sql, $bind);
+            //$notification_msg = array();
+
+            /************* checking if customer id exist so update otherwise insert  ***************/
+            if (isset($response[0]['customer_id']) && !empty($response[0]['customer_id'])) {
+                $sql_account_setup_update = "UPDATE zoho_lead_options set zoho_id = :zoho_id, new_caller_lead = :new_caller_lead , total_length = :total_length , call_time = :call_time , default_status = :default_status , email_address = :email_address , record_type = :record_type , post_call_data = :post_call_data, second_delay = :second_delay, campaign = :campaign, tracking_source = :tracking_source , tracking_number = :tracking_number , recieving_number = :recieving_number , menu_keypress = :menu_keypress, updated_date = NOW() where customer_id = :customer_id And zoho_id = :zoho_id";
+                $bind = array(
+                    'new_caller_lead' => $new_caller_lead,
+                    'total_length' => $total_length,
+                    'call_time' => $time_length . " " . $time_smh,
+                    'default_status' => $defualt_status,
+                    'email_address' => $email_address,
+                    'record_type' => $record_type,
+                    'post_call_data' => $post_calls_data,
+                    'second_delay' => $second_delay,
+                    'campaign' => $campaign,
+                    'tracking_source' => $tracking_source,
+                    'tracking_number' => $tracking_number,
+                    'recieving_number' => $recieving_number,
+                    'menu_keypress' => $menu_keypress,
+                    'customer_id' => $customer_id,
+                    'zoho_id' => self::$is_zoho_id,
+
+                );
+                $result = $this->query($sql_account_setup_update, $bind);
+                if ($result) {
+                    //****** Create Log******//
+                 $db_log = ['request' => array('customer_id' => $customer_id, 'zoho_id' => self::$is_zoho_id, "type" => "lead option update record", "table" => "zoho_lead_options", "request" => $bind, "response" => array("msg" => "Lead option setting has been updated"))];
+                 self::add_log($db_log);
+
+                    $notification_msg = array("msg" => "Lead option setting has been updated");
+                } else {
+                    $notification_msg = array("msg" => "Lead option setting saved has not updated");
+                }
+            } else {
+                $insert = "INSERT INTO zoho_lead_options (customer_id, zoho_id, new_caller_lead, total_length, call_time, default_status, email_address, record_type, post_call_data, second_delay, campaign, tracking_source, tracking_number, recieving_number, menu_keypress, created_date)
+                VALUES (:customer_id, :zoho_id, :new_caller_lead, :total_length, :call_time, :default_status, :email_address, :record_type, :post_call_data, :second_delay, :campaign,:tracking_source, :tracking_number, :recieving_number, :menu_keypress, NOW())";
+                $bind = array(
+                    'customer_id' => $customer_id,
+                    'zoho_id' => self::$is_zoho_id,
+                    'new_caller_lead' => $new_caller_lead,
+                    'total_length' => $total_length,
+                    'call_time' => $time_length . " " . $time_smh,
+                    'default_status' => $defualt_status,
+                    'email_address' => $email_address,
+                    'record_type' => $record_type,
+                    'post_call_data' => $post_calls_data,
+                    'second_delay' => $second_delay,
+                    'campaign' => $campaign,
+                    'tracking_source' => $tracking_source,
+                    'tracking_number' => $tracking_number,
+                    'recieving_number' => $recieving_number,
+                    'menu_keypress' => $menu_keypress,
+                    //'created_date' => $this->DateCreated
+                );
+
+                $result = $this->query($insert, $bind);
+                if ($result) {
+                    //****** Create Log******//
+                 $db_log = ['request' => array('customer_id' => $customer_id, 'zoho_id' => self::$is_zoho_id, "type" => "lead option insert record", "table" => "zoho_lead_options", "request" => $bind, "response" => array("msg" => "Lead option setting has been saved"))];
+                 self::add_log($db_log);
+                    $notification_msg = array("msg" => "Lead option setting has been saved");
+                } else {
+                    $notification_msg = array("msg" => "Lead option setting saved has saved");
+                }
+            }
+            return $notification_msg;
+        } else {
+            $notification_msg = array("msg" => "please login from zoho");
+            return $notification_msg;
+        }
+    }
+    // ************** lead option Inserted end ***************/
+
+    //************** lead option get code***************/
+function insert_zoho_lead_option_edit(){
+            self::getZohoID();
+
+
+            if (isset(self::$is_zoho_id) && !empty(self::$is_zoho_id)) {
+                $customer_id = $_SESSION['user']['id'];
+                $sql = "SELECT * from zoho_lead_options where customer_id = :customer_id and zoho_id = :zoho_id";
+                $bind = array('customer_id' => $customer_id, 'zoho_id' => self::$is_zoho_id);
+                return $this->query($sql, $bind);
+            } else {
+                return [];
+            }
+        }
+    //************** integration option get end ***************/
+
+
+    //************** default lead owner Inserted ***************/
+function insert_zoho_default_lead_owner($params){
+
+            self::getZohoID();
+            $notification_msg = array();
+            if (isset(self::$is_zoho_id) && !empty(self::$is_zoho_id)) {
+                $customer_id = $_SESSION['user']['id'];
+                $lead_owner_type = $params['lead_owner_type'];
+                // $notification_msg = array();
+                /************* checking if customer id exist or not  ***************/
+                $sql = "SELECT * from zoho_default_lead_owner where customer_id = :customer_id and zoho_id = :zoho_id";
+                $bind = array('customer_id' => $customer_id, 'zoho_id' => self::$is_zoho_id);
+                $response = $this->query($sql, $bind);
+                /************* checking if customer id exist so update otherwise insert  ***************/
+                if (isset($response[0]['customer_id']) && !empty($response[0]['customer_id'])) {
+                    $sql_account_setup_update = "UPDATE zoho_default_lead_owner set zoho_id = :zoho_id, lead_owner_type = :lead_owner_type, updated_date = NOW() where customer_id = :customer_id and zoho_id = :zoho_id";
+                    $bind = array(
+                        'lead_owner_type' => $lead_owner_type,
+                        'customer_id' => $customer_id,
+                        'zoho_id' => self::$is_zoho_id
+                    );
+                    $result = $this->query($sql_account_setup_update, $bind);
+
+                    if ($result) {
+                        $db_log = ['request' => array('customer_id' => $customer_id, 'zoho_id' => self::$is_zoho_id, "type" => "default lead owner update record", "table" => "zoho_default_lead_owner", "request" => $bind, "response" => array("msg" => "Default lead owner has been updated"))];
+                        self::add_log($db_log);
+                        $notification_msg = array("msg" => "Default lead owner has been updated");
+                    } else {
+                        $notification_msg = array("msg" => "Default lead owner saved has not updated");
+                    }
+                } else {
+                    $insert = "INSERT INTO zoho_default_lead_owner (customer_id, zoho_id, lead_owner_type, created_date)
+                    VALUES (:customer_id, :zoho_id, :lead_owner_type, NOW())";
+                    $bind = array(
+                        'customer_id' => $customer_id,
+                        'zoho_id' => self::$is_zoho_id,
+                        'lead_owner_type' => $lead_owner_type
+                        //'created_date' => $this->DateCreated
+                    );
+
+                    $result = $this->query($insert, $bind);
+                    if ($result) {
+                        $db_log = ['request' => array('customer_id' => $customer_id, 'zoho_id' => self::$is_zoho_id, "type" => "default lead owner insert record", "table" => "zoho_default_lead_owner", "request" => $bind, "response" => array("msg" => "Default lead owner has been saved"))];
+                        self::add_log($db_log);
+                        $notification_msg = array("msg" => "Default lead owner has been saved");
+                    } else {
+                        $notification_msg = array("msg" => "Default lead owner saved has saved");
+                    }
+                }
+                return $notification_msg;
+            } else {
+                $notification_msg = array("msg" => "please login from zoho");
+                return $notification_msg;
+            }
+        }
+    //************** default lead owner Inserted end ***************/
+
+
+        //************** lead owner get code***************/
+function insert_zoho_default_lead_owner_edit(){
+            self::getZohoID();
+            if (isset(self::$is_zoho_id) && !empty(self::$is_zoho_id)) {
+                $customer_id = $_SESSION['user']['id'];
+                $sql = "SELECT * from zoho_default_lead_owner where customer_id = :customer_id and zoho_id = :zoho_id";
+                $bind = array('customer_id' => $customer_id, 'zoho_id' => self::$is_zoho_id);
+                return $this->query($sql, $bind);
+            } else {
+                return [];
+            }
+        }
+        //************** lead owner get end ***************/
+
+
+    //************** task option Inserted ***************/
+// function insert_sftask_option($checked, $params){
+//             self::getSalesforceID();
+//             $notification_msg = array();
+//             if (isset(self::$is_salesforce_id) && !empty(self::$is_salesforce_id)) {
+//                 $customer_id = $_SESSION['user']['id'];
+//                 $check_value = explode(',', $checked);
+
+//                 $new_activity = (in_array("new_activity", $check_value)) ? 1 : 0;
+//                 $time_length1 = $params['time_length1'];
+//                 $time_smh1 = $params['time_smh1'];
+//                 $custom_subject = $params['custom_subject'];
+//                 $task_status = $params['task_status'];
+//                 $task_record_type = $params['task_record_type'];
+// //$notification_msg = array();
+//                 /************* checking if customer id exist or not  ***************/
+//                 $sql = "SELECT * from sf_task_options where customer_id = :customer_id and salesforce_id = :salesforce_id";
+//                 $bind = array('customer_id' => $customer_id, 'salesforce_id' => self::$is_salesforce_id);
+//                 $response = $this->query($sql, $bind);
+
+//                 /************* checking if customer id exist so update otherwise insert  ***************/
+//                 if (isset($response[0]['customer_id']) && !empty($response[0]['customer_id'])) {
+//                     $sql_account_setup_update = "UPDATE sf_task_options set salesforce_id = :salesforce_id, new_activity = :new_activity, task_call_time = :task_call_time, custom_subject = :custom_subject, task_status = :task_status, task_record_type = :task_record_type, updated_date = NOW() where customer_id = :customer_id limit 1";
+//                     $bind = array(
+//                         'new_activity' => $new_activity,
+//                         'task_call_time' => $time_length1 . " " . $time_smh1,
+//                         'custom_subject' => $custom_subject,
+//                         'task_status' => $task_status,
+//                         'task_record_type' => $task_record_type,
+//                         'customer_id' => $customer_id,
+//                         'salesforce_id' => self::$is_salesforce_id,
+//                     );
+//                     $result = $this->query($sql_account_setup_update, $bind);
+
+//                     if ($result) {
+//                         $db_log = ['request' => array('customer_id' => $customer_id, 'salesforce_id' => self::$is_salesforce_id, "type" => "task option update record", "table" => "sf_task_options", "request" => $bind, "response" => array("msg" => "Default lead owner has been updated"))];
+//                         self::add_log($db_log);
+//                         $notification_msg = array("msg" => "Task option has been updated");
+//                     } else {
+//                         $notification_msg = array("msg" => "Task option saved has not updated");
+//                     }
+//                 } else {
+//                     $insert = "INSERT INTO sf_task_options (customer_id, salesforce_id, new_activity, task_call_time, custom_subject, task_status, task_record_type, created_date)
+//     VALUES (:customer_id, :salesforce_id, :new_activity, :task_call_time, :custom_subject, :task_status, :task_record_type, NOW())";
+//                     $bind = array(
+//                         'customer_id' => $customer_id,
+//                         'salesforce_id' => self::$is_salesforce_id,
+//                         'new_activity' => $new_activity,
+//                         'task_call_time' => $time_length1 . " " . $time_smh1,
+//                         'custom_subject' => $custom_subject,
+//                         'task_status' => $task_status,
+//                         'task_record_type' => $task_record_type,
+//                         // 'created_date' => $this->DateCreated
+//                     );
+
+//                     $result = $this->query($insert, $bind);
+//                     if ($result) {
+//                         $db_log = ['request' => array('customer_id' => $customer_id, 'salesforce_id' => self::$is_salesforce_id, "type" => "task option insert record", "table" => "sf_task_options", "request" => $bind, "response" => array("msg" => "Default lead owner has been saved"))];
+//                         self::add_log($db_log);
+//                         $notification_msg = array("msg" => "Task option has been saved");
+//                     } else {
+//                         $notification_msg = array("msg" => "Task option has saved");
+//                     }
+//                 }
+//                 return $notification_msg;
+//             } else {
+//                 $notification_msg = array("msg" => "please login from salesforce");
+//                 return $notification_msg;
+//             }
+//         }
+    //************** task option Inserted end ***************/
+
+
+    //************** lead owner get code***************/
+// function insert_sftask_option_edit(){
+//             self::getSalesforceID();
+//             if (isset(self::$is_salesforce_id) && !empty(self::$is_salesforce_id)) {
+//                 $customer_id = $_SESSION['user']['id'];
+//                 $sql = "SELECT * from sf_task_options where customer_id = :customer_id and salesforce_id = :salesforce_id";
+//                 $bind = array('customer_id' => $customer_id, 'salesforce_id' => self::$is_salesforce_id);
+//                 return $this->query($sql, $bind);
+//             } else {
+//                 return [];
+//             }
+
+//         }
+    //************** lead owner get end ***************/
+
+
+//************** Lead Mapping Inserted ***************/
+function insert_lead_mapping($params){
+    
+            self::getZohoID();
+            $notification_msg = array();
+            if (isset(self::$is_zoho_id) && !empty(self::$is_zoho_id)) {
+
+                $switch = $params['switch'];
+                $call_field_row = $params['call_field_row'];
+                $zoho_value = $params['zoho_value'];
+                $default_value = $params['default_value'];
+                $customer_id = $_SESSION['user']['id'];
+                $mapping_type = $params['task'];
+
+
+                /************* checking if customer id exist or not  ***************/
+                $sql = "SELECT * from zoho_mapping where customer_id = :customer_id AND mapping_type = :mapping_type AND zoho_id = :zoho_id";
+                $bind = array('customer_id' => $customer_id, 'mapping_type' => $mapping_type, 'zoho_id' => self::$is_zoho_id);
+                $response = $this->query($sql, $bind);
+
+                /************* checking if customer id exist so update otherwise insert  ***************/
+                if (isset($response[0]['customer_id']) && !empty($response[0]['customer_id'])) {
+                    $sql_dlt = "DELETE from zoho_mapping where customer_id = :customer_id AND mapping_type = :mapping_type AND zoho_id = :zoho_id";
+                    $bind_dlt = array('customer_id' => $customer_id, 'mapping_type' => $mapping_type, 'zoho_id' => self::$is_zoho_id);
+                    $this->query($sql_dlt, $bind_dlt);
+                }
+                /************* checking if customer id exist so update otherwise insert  ***************/
+                for ($i = 0; $i < count($call_field_row); $i++) {
+
+                    $insert = "INSERT INTO zoho_mapping (customer_id, zoho_id, call_field, zoho_field, default_value, mapping_type, created_date)
+        VALUES (:customer_id, :zoho_id, :call_field, :zoho_field, :default_value, :mapping_type, NOW())";
+                    $bind_ins = array(
+                        'customer_id' => $customer_id,
+                        'zoho_id' => self::$is_zoho_id,
+                        //'new_activity' =>  (isset($switch) ? 1 : 0),
+                        'call_field' => $call_field_row[$i],
+                        'zoho_field' => $zoho_value[$i],
+                        'default_value' => $default_value[$i],
+                        //'created_date' => $this->DateCreated,
+                        'mapping_type' => $mapping_type,
+                    );
+
+                    $result = $this->query($insert, $bind_ins);
+                    if ($result)
+                        $notification_msg = array("msg" => "$mapping_type mapping has been saved");
+                    else
+                        $notification_msg = array("msg" => "lead mapping not saved");
+                }
+                $db_log = ['request' => array('customer_id' => $customer_id, 'zoho_id' => self::$is_zoho_id, "type" => $mapping_type . "_mapping", "table" => "zoho_mapping", "request" => $params, "response" => array("msg" => "$mapping_type mapping has been saved"))];
+                self::add_log($db_log);
+                return $notification_msg;
+            } else {
+
+                $notification_msg = array("msg" => "please login from zoho");
+                return $notification_msg;
+            }
+
+        }
+//*************************** Lead Mapping Inserted end ***************************/
+
+
+
+//*************************** lead mapping get code *******************************/
+function edit_sfmapping_edit($mapping_type){
+    
+            self::getZohoID();
+            if (isset(self::$is_zoho_id) && !empty(self::$is_zoho_id)) {
+                $customer_id = $_SESSION['user']['id'];
+                $sql = "SELECT * from zoho_mapping where customer_id = :customer_id AND mapping_type = :mapping_type and zoho_id = :zoho_id";
+                $bind = array('customer_id' => $customer_id, 'mapping_type' => $mapping_type, 'zoho_id' => self::$is_zoho_id);
+                return $this->query($sql, $bind);
+            } else {
+                return [];
+            }
+        }
+    //************************* lead owner get end ***************************/
+
+function getCampaigns(){
+
+            $customer_id = $_SESSION['user']['id'];
+            $sql = "SELECT af.id, af.title, af.adgroup, af.domain, pl.phone_id, p.phone_no, p.dialing_code  
+            FROM nj_pool p 
+            LEFT JOIN nj_pool_link pl ON (p.id = pl.`phone_id`) 
+            LEFT JOIN `phone_order` po ON  (po.customer_id = pl.customer_id)
+            LEFT JOIN nj_affiliate af ON (pl.aff_id = af.`id`) 
+            WHERE pl.customer_id = :customer_id AND p.inuse = :status
+            AND p.badno=0 AND po.phone_ids = pl.phone_id AND po.status='complete' AND p.in_quarantine=0
+            GROUP BY p.id";
+            $bind = array("customer_id" => $customer_id, "status" => 1);
+            $campaigns = $this->query($sql, $bind);
+
+            if ($campaigns) {
+                $arr = array();
+                foreach ($campaigns as $campaign) {
+
+                    $arr1 = array();
+                    $arr1['phone_id'] = $campaign['phone_id'];
+                    $arr1['title'] = $campaign['title'];
+                    $arr1['phone_no'] = func::formatPhone($campaign['phone_no']);
+                    array_push($arr, $arr1);
+                }
+                return $arr;
+            }
+        }
+
+
+//*************************** user alias Inserted ************************/
+function insert_user_alias($params){
+            //echo "<pre>";print_r($params);exit;
+            self::getZohoID();
+            $notification_msg = array();
+            if (isset(self::$is_zoho_id) && !empty(self::$is_zoho_id)) {
+
+                $forwardingnumber = $params['forwardingnumber'];
+                $zoho_user = $params['zoho_user'];
+                $customer_id = $_SESSION['user']['id'];
+
+                /************* checking if customer id exist or not  ***************/
+                $sql = "SELECT * from zoho_user_assignment where customer_id = :customer_id And zoho_id = :zoho_id";
+                $bind = array('customer_id' => $customer_id, 'zoho_id' => self::$is_zoho_id);
+                $response = $this->query($sql, $bind);
+
+                /************* checking if customer id exist so update otherwise insert  ***************/
+                if (isset($response[0]['customer_id']) && !empty($response[0]['customer_id'])) {
+                    $sql_dlt = "DELETE from zoho_user_assignment where customer_id = :customer_id AND zoho_id = :zoho_id";
+                    $bind_dlt = array('customer_id' => $customer_id, 'zoho_id' => self::$is_zoho_id);
+                    $this->query($sql_dlt, $bind_dlt);
+                }
+
+                /************* checking if customer id exist so update otherwise insert  ***************/
+                for ($i = 0; $i < count($forwardingnumber); $i++) {
+
+                    $userid_name = explode('_', $zoho_user[$i]);
+                    $user_id = $userid_name[0];
+                    $user_name = $userid_name[1];
+
+                    $insert = "INSERT INTO zoho_user_assignment (customer_id, zoho_id, receiving_number, zoho_user_id, zoho_user_name, created_datetime)
+         VALUES (:customer_id, :zoho_id, :receiving_number, :zoho_user_id, :zoho_user_name, NOW())";
+                    $bind_ins = array(
+                        'customer_id' => $customer_id,
+                        'zoho_id' => self::$is_zoho_id,
+                        'receiving_number' => $forwardingnumber[$i],
+                        'zoho_user_id' => $user_id,
+                        'zoho_user_name' => $user_name,
+                        //'created_datetime' => $this->DateCreated
+                    );
+
+                    $result = $this->query($insert, $bind_ins);
+                    if ($result)
+                        $notification_msg = array("msg" => "user alias has been saved");
+                    else
+                        $notification_msg = array("msg" => "user alias not saved");
+                }
+
+                $db_log = ['request' => array('customer_id' => $customer_id, 'zoho_id' => self::$is_zoho_id, "type" => "Zoho User/Alias Assignment insert record", "table" => "zoho_user_assignment", "request" => $params, "response" => array("msg" => "user alias has been saved"))];
+                self::add_log($db_log);
+
+                return $notification_msg;
+            } else {
+                $notification_msg = array("msg" => "please login from zoho");
+                return $notification_msg;
+            }
+
+        }
+//************************** user alias Inserted end ******************************//
+
+
+function edit_user_alias(){
+            self::getZohoID();
+            if (isset(self::$is_zoho_id) && !empty(self::$is_zoho_id)) {
+                $customer_id = $_SESSION['user']['id'];
+                $sql = "SELECT * from zoho_user_assignment where customer_id = :customer_id AND zoho_id = :zoho_id";
+                $bind = array('customer_id' => $customer_id, "zoho_id" => self::$is_zoho_id);
+                return $this->query($sql, $bind);
+            } else {
+                return [];
+            }
+        }
+
+
+//************************* response convert into json **************************//
+// private function get_json_decode_format($response)
+// {
+//     if($response && is_string($response)) {
+//         $converted=json_decode($response);
+//         return (json_last_error() === JSON_ERROR_NONE) ? $converted :$response;
+//     }
+//     return $response;
+// }
+
+//************************* zoho activity Logs ****************************//
+private function add_log($request){
+
+    $insert = "INSERT INTO zoho_general_log (customer_id, zoho_id, table_name, message_text, request, response, created_date)
+    VALUES (:customer_id, :zoho_id, :table_name, :message_text, :request, :response, NOW())";
+    $bind = array(
+        'customer_id' => ($request['request']['customer_id']) ? $request['request']['customer_id'] : "",
+        'zoho_id' => ($request['request']['zoho_id']) ? $request['request']['zoho_id'] :"",
+        'table_name' => ($request['request']['table']) ? $request['request']['table'] : "",
+        'message_text' => ($request['request']['type']) ?$request['request']['type'] : "",
+        'request' => json_encode(($request['request']['request']) ? $request['request']['request'] : []),
+        "response" => json_encode(($request['request']['response']) ? $request['request']['response'] : []),
+    );
+    $result = $this->query($insert, $bind);
+    if($result){
+        return true;
+    }
+}
+
+//************************* get zoho id **********************************//
+function getZohoID(){
+    $customer_id =  $_SESSION['user']['id'];
+    $sql = "SELECT * from zoho_account_info where customer_id = :customer_id";
+    $bind=array('customer_id'=>$customer_id);
+    $response = $this->query($sql,$bind);
+    
+    if($response){
+        return self::$is_zoho_id = $response[0]['id'];
+    }
+    else{
+        return self::$is_zoho_id =  null;
+    }
+}
+
+
+// //account info
+// function account_info(){
+//     $customer_id = $_SESSION['user']['id'];
+//     $sql = "SELECT * from sf_account_info where customer_id = :customer_id";
+//     $bind=array('customer_id'=>$customer_id);
+//     $response = $this->query($sql,$bind);
+//     if($response){
+//         return ["status" => "success", "response" => $response, "status_active" => $response[0]['active']];
+//     }else{
+//         return ["status" => "false", "response" => $response];
+//     }
+// }
+
+
+
+//get users
+function get_users_from_api(){
+   
+    $arr = array();
+    
+    $access_token = self::is_access_token_exist();
+    if($access_token != null && !empty($access_token)){
+    $url = rtrim($_SESSION['instance_url_zoho'], "/") . '/crm/v2/users?type=ActiveUsers';
+        
+    $headers = array("Authorization: Bearer " . $access_token);
+    $response_user = self::get_zoho($url, "GET", "", $headers);
+        
+    if ($response_user['status'] == "success") {
+    foreach ($response_user["response"]->users as $value) {
+      
+        $arr1 = array();
+
+        $arr1['Id'] = $value->id;
+        $arr1['Alias'] = $value->alias;
+        $arr1['First_Name'] = $value->first_name;
+        $arr1['Last_Name'] = $value->last_name;
+
+        array_push($arr, $arr1);
+    }
+
+    return array("status" => "success", "response" => $arr);
+    }
+}
+
+return array("status" => "false", "response" => "access token is empty");
+    }
+
+
+
+    function get_lead_field_from_api($api_name){  
+        
+        $arr = array();        
+        $access_token = self::is_access_token_exist();
+        if($access_token != null && !empty($access_token)){
+        $url = rtrim($_SESSION['instance_url_zoho'], "/") . "/crm/v3/settings/fields?module=".$api_name."&include=allowed_permissions_to_update&type=all";
+        $headers = array("Authorization: Bearer " . $access_token);
+        $response = self::get_zoho($url, "GET", "", $headers);
+        
+        if($response['status'] == "success") {
+
+            foreach ($response["response"]->fields as $key => $value) {
+              //  echo $value->api_name;exit;
+                $arr1 = array();
+                if ($value->allowed_permissions_to_update->read_write == 1) {
+                    if($value->api_name == "First_Name" || $value->api_name == "Last_Name" || $value->api_name == "Phone" || $value->api_name == "City" || $value->api_name == "State" || $value->api_name == "Owner" || $value->api_name == "Account_Name" || $value->api_name == "PostalCode" || $value->api_name == "Status" || $value->api_name == "Subject"){
+                    }else{
+                    
+                    $arr1['label'] = $value->display_label;
+                    $arr1['name'] = $value->api_name;
+                    $arr1['type'] = $value->data_type;
+                    array_push($arr, $arr1);
+                    }
+                }
+            }
+
+            return array("status" => "success", "response" => $arr);
+            
+            
+        } 
+    }
+    else{
+        return array("status" => "false", "response" => "access token is empty");
+    }
+    }
+      
+
+
+    function is_access_token_exist(){
+        
+    if(isset($_SESSION['access_token_zoho']) && !empty($_SESSION['access_token_zoho'])){
+        $cDate = strtotime(date('Y-m-d H:i:s'));
+        $oldDate = $_SESSION["old_date_zoho"] + 1800;
+            
+        if ($oldDate > $cDate) {
+                return $_SESSION['access_token_zoho'];
+            }else{
+                self::get_refresh_token();
+                return $_SESSION['access_token_zoho'];
+        }
+        }else{
+           
+        self::get_refresh_token();
+        return $_SESSION['access_token_zoho'];
+        }
+      }
+
+    }
+?>

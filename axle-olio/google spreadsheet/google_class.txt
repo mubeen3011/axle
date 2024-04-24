@@ -1,0 +1,533 @@
+<?php
+
+class GoogleAuthApi extends PDB{
+
+var $pdb;
+var $returnType = PDO::FETCH_OBJ;
+public static $current_time = null;
+public static $is_google_table_id = null;
+
+public static $cron_minute = 'minute';
+public static $cron_hourly = 'hourly';
+public static $cron_daily = 'daily';
+public static $cron_weekly = 'weekly';
+public static $cron_monthly = 'monthly';
+public static $cron_quaterly = 'quaterly';
+public static $cron_yearly = 'yearly';
+
+public static $minute30 = 30;
+public static $hour1 = 60;
+public static $day1 = 1440;
+public static $week1 = 10080;
+public static $month1 = 43200;
+public static $quater1 = 129600;
+public static $year1 = 525600;
+
+public static $minute30second = 1800;
+public static $hour1second = 3600;
+public static $day1second = 86400;
+public static $week1second = 604800;
+public static $month1second = 2592000;
+public static $quater1second = 7776000;
+public static $year1second = 31536000;
+
+
+function __construct()
+{
+ include_once $dir1 . "../myaccounts/vendor/autoload.php";
+ spl_autoload_register("__autoload");
+ 
+}
+
+
+function is_login(){
+if (isset($_SESSION['user']['id']))
+return $_SESSION['user']['id'];
+else return false;
+}
+function setcid($cid){
+if (isset($cid))
+$this->cid = $cid;
+}
+
+
+public function createConnection($param, $user_info){
+    $customer_id = $_SESSION['user']['id'];
+    if($customer_id){
+    $insert = "INSERT INTO google_account_info (name_google, email_google, phone_google, customer_id, access_token, refresh_token, instance_url, created_date, active)
+    VALUES (:name_google, :email_google, :phone_google, :customer_id, :access_token, :refresh_token, :instance_url, NOW(), :active)";
+    $bind = array(
+        'name_google' => $user_info['name'],
+        'email_google' => $user_info['email'],
+        'phone_google' => $user_info['phone'],
+        'customer_id' => $customer_id,
+        'access_token' => $param['access_token'],
+        'refresh_token' => $param['refresh_token'],
+        'instance_url' => $param['scope'],
+        'active' => 1
+    );
+    $result = $this->query($insert, $bind);
+
+    if ($result) {
+        return ["status" => "success", "response" => $result[0], "status_active" => $result[0]['active']];
+    } else {
+        return ["status" => "false", "response" => $result];
+    }
+    }else{
+        return ["status" => "false", "response" => false];
+    }
+}
+
+
+//************** google checking app connected aur not***************/
+function get_google_connected_app(){
+
+    $customer_id = $_SESSION['user']['id'];
+    self::getGoogleID();
+    if(isset(self::$is_google_table_id) && !empty(self::$is_google_table_id)) {
+    $sql = "SELECT google_account_info.active as active, google_account_info.name_google as user_id, nj_user.contact as contact, google_account_info.email_google as email, google_account_info.instance_url as instance_url from google_account_info 
+    INNER JOIN nj_user on google_account_info.customer_id = nj_user.id 
+    where google_account_info.customer_id = :customer_id and google_account_info.id = :google_id";
+    $bind = array('customer_id' => $customer_id, 'google_id' => self::$is_google_table_id);
+    $response = $this->query($sql, $bind);
+    if ($response) {
+        return ["status" => "success", "response" => $response[0], "status_active" => $response[0]['active']];
+    } else {
+        return ["status" => "false", "response" => $response];
+    }
+    }else{
+        return ["status" => "false", "response" => ""];
+    }
+}
+    //************** google checking app connected aur not end ***************/
+
+
+
+function get_access_token(){
+    self::getGoogleID();
+    $customer_id = $_SESSION['user']['id'];
+    if(isset(self::$is_google_table_id) && !empty(self::$is_google_table_id)) {
+    $sql = "SELECT access_token, refresh_token, active from google_account_info  
+    where customer_id = :customer_id AND id = :google_id";
+    $bind = array('customer_id' => $customer_id, 'google_id' => self::$is_google_table_id);
+    $response = $this->query($sql, $bind);
+    return $response;
+    }else{
+        return false;
+    }
+}
+
+function getServerTimeQuery(){
+    $query = "SELECT NOW() AS server_time";
+    $res = $this->query($query);
+    if(isset($res) && !empty($res)){
+    return $res[0];      
+    }else{
+        return false;
+    }
+}
+
+
+function get_table_log_data($params){
+if($params){
+    $id = $params['id'];
+    $report_type = $params['report_type'];
+    $report_interval = $params['report_interval'];
+    $updated_date = $params['updated_date'];
+    $to_check = strtotime($updated_date);
+    
+    if(empty(self::$current_time)){
+        $current_server_time = self::getServerTimeQuery();
+        self::$current_time = $current_server_time['server_time']; 
+    }
+    return self::getSortTimeCallLog($report_type, $report_interval, $to_check);
+    }
+}
+
+function getQueryLogTable($table_call_log_datas){
+    $results = [];
+    $success = [];
+    $is_data = 0;
+    $report_type = $table_call_log_datas['report_type'];
+    $report_interval = $table_call_log_datas['report_interval'];
+
+    if($report_type == "call_log"){
+        $results=  self::getQuery($report_type, $report_interval, $table_name="tbl_call_logs");
+    }elseif($report_type == "all_print_call"){
+        $results = self::getQuery($report_type, $report_interval, $table_name="tbl_call_logs");
+    }
+    
+    if($results){
+        $is_data = 1;   
+        foreach($results as $index=>$value){
+            $data = [$value['cd_tblid'],$value['customer_id'],$value['cd_did'],$value['cd_leg1start_date'],
+            $value['cd_leg1start_time'],$value['cd_leg1finish_date'],$value['cd_leg2duration'],$value['cd_leg2start_date'],
+            $value['cd_leg2start_time'],$value['cd_leg2finish_date'],$value['cd_leg2finish_time'],$value['cd_forward_to']];
+            $success[] = $data; 
+        }
+        }
+        if($is_data){
+            return $success;
+        }
+
+    return $success;
+}
+
+
+function googleSheetHeader(){
+    $header=
+    ['cd_tblid','customer_id','cd_did',"cd_leg1start_date",'cd_leg1start_time','cd_leg1finish_date',
+    'cd_leg2duration','cd_leg2start_date','cd_leg2start_time','cd_leg2finish_date','cd_leg2finish_time','cd_forward_to',];
+    return $header;
+}
+
+
+function getQuery($report_type, $report_interval, $table_name){
+    $time_of_cron = self::sotrIntervalTiming($report_interval);
+    $customer_id = $_SESSION['user']['id'];
+
+    if($report_type == "call_log"){
+        $sql = "SELECT * from tbl_call_logs  
+    where customer_id = :customer_id and call_datetime >= NOW() - INTERVAL $time_of_cron MINUTE";
+    }elseif($report_type == "all_print_call"){
+        $sql = "SELECT * from tbl_call_logs  
+        where customer_id = :customer_id and call_type = 'lite' and call_datetime >= NOW() - INTERVAL $time_of_cron MINUTE";
+    }
+    
+    $bind = array('customer_id' => $customer_id);
+    $response = $this->query($sql, $bind);
+    if($response){
+    return $response;
+    }else{
+    return [];
+    }
+}
+
+
+
+function delete_connention_google(){
+    self::getGoogleID();
+    $customer_id = $_SESSION['user']['id'];
+        /************* delete google connection  ***************/
+    if(isset(self::$is_google_table_id) && !empty(self::$is_google_table_id)){
+    $sql_dlt = "delete from google_account_info where customer_id = :customer_id and id =:google_id";
+    $bind_dlt = array('customer_id' => $customer_id, 'google_id' => self::$is_google_table_id);
+    $response = $this->query($sql_dlt, $bind_dlt);
+    if ($response) {
+    return array("status"=> true, "msg" => "connected app has been removed");
+    } else {
+    return array("status"=> false, "msg" => "connected app has not been removed");
+    }
+    }else{
+        return array("status"=> false, "msg" => "something went wrong");
+    }
+
+}
+
+
+function connected_app_status_active_deactive($status){
+    self::getGoogleID();
+    $customer_id = $_SESSION['user']['id'];
+    $status_val = null;
+    $status_msg = "";
+    if ($status == 1) {
+        $status_val = 0;
+        $status_msg = "Integration has been paused";
+    }
+    else{
+        $status_val = 1;
+        $status_msg = "Integration has been Activated";
+    }
+    
+    if(isset(self::$is_google_table_id) && !empty(self::$is_google_table_id)){
+    $sql = "SELECT * from google_account_info where customer_id = :customer_id";
+    $bind = array('customer_id' => $customer_id);
+    $response = $this->query($sql, $bind);
+    if ($response) {
+        $sql_account_setup_update = "update google_account_info set active = :active where customer_id = :customer_id and id = :google_id";
+        $bind = array(
+            'active' => $status_val,
+            'customer_id' => $customer_id,
+            'google_id' => self::$is_google_table_id
+        );
+        $result = $this->query($sql_account_setup_update, $bind);
+        if ($result) {
+            return ["status" => "success", "msg" => $status_msg, "response" => $status_val];
+        }
+    }
+}else{
+    return ["status" => "success", "msg" => "something wentrong", "response" => $status_val];
+}
+    
+}
+
+
+function google_cron_setting_save($data){
+    self::getGoogleID();
+    if(isset(self::$is_google_table_id) && !empty(self::$is_google_table_id)) {
+    if(isset($data['report_type']) && !empty($data['report_type']) && isset($data['report_interval']) && !empty($data['report_interval'])){    
+    $customer_id = $_SESSION['user']['id'];
+    if($data['id']){
+
+    $sql_account_setup_update = 'update google_cron_setting set report_type = :report_type, report_interval = :report_interval, updated_date = NOW() where id = :id AND customer_id = :customer_id and google_id = :google_id';
+    $bind = array(
+    'report_type' => $data['report_type'],
+    'report_interval' => $data['report_interval'],
+    'id' => $data['id'],
+    'customer_id' => $customer_id,
+    'google_id' => self::$is_google_table_id
+    );
+    
+    $result = $this->query($sql_account_setup_update, $bind);
+    if ($result) {
+        return ["status" => "success", "msg" => $data['report_interval'].' Cron has been Updated'];
+    }
+    }else{
+    $insert = "INSERT INTO google_cron_setting (google_id, report_type, report_interval, customer_id, created_date, active)
+    VALUES (:google_id, :report_type, :report_interval, :customer_id, NOW(), :active)";
+    $bind = array(
+    'report_type' => $data['report_type'],
+    'report_interval' => $data['report_interval'],
+    'customer_id' => $customer_id,
+    'google_id' => self::$is_google_table_id,
+    'active' => 1
+    );
+    
+    $result = $this->query($insert, $bind);
+    if ($result) {
+        return ["status" => "success", "msg" => $data['report_interval'].' Cron has been Added', "response" => $result[0], "status_active" => $result[0]['active']];
+    } else {
+        return ["status" => "false", "response" => $result];
+    }
+    }
+
+    }else{ 
+        return ["status" => "false", "msg" => "Please select the dropdown menu"];
+    }
+    }else{
+        return ["status" => "false", "msg" => "something went wrong"];
+    }
+
+}
+
+function google_cron_setting_view(){
+
+    self::getGoogleID();
+    $customer_id = $_SESSION['user']['id'];
+
+    if(isset(self::$is_google_table_id) && !empty(self::$is_google_table_id)) {
+    $sql = "SELECT * from google_cron_setting  
+    where customer_id = :customer_id and google_id = :google_id";
+    $bind = array('customer_id' => $customer_id, 'google_id' => self::$is_google_table_id);
+    $response = $this->query($sql, $bind);
+
+    if ($response) {
+        return ["status" => "success", "response" => $response];
+    } else {
+        return ["status" => "false", "response" => $response];
+    }
+    }else{
+        return ["status" => "false", "response" => ""];
+    }
+
+}
+
+
+function google_setting_row_delete($id){
+    $customer_id = $_SESSION['user']['id'];
+    $status = false;
+
+    self::getGoogleID();
+
+    if(isset(self::$is_google_table_id) && !empty(self::$is_google_table_id)) {
+    if (isset($customer_id) && !empty($customer_id)) {
+        $sql_dlt = "DELETE from google_cron_setting where customer_id = :customer_id AND id = :id";
+        $bind_dlt = array('customer_id' => $customer_id, 'id' => $id);
+        $response = $this->query($sql_dlt, $bind_dlt);
+        if($response){
+            $status = true;
+        }
+    }
+
+    if ($status) {
+        return ["status" => "success", "msg" => "Row has been deleted successfully"];
+    } else {
+        return ["status" => "false", "msg" => "Row has not been deleted"];
+    }
+
+    }else{
+        return ["status" => "false", "msg" => "something went wrong"];
+    }
+
+}
+
+
+function google_setting_row_get($id){
+
+    self::getGoogleID();
+    $customer_id = $_SESSION['user']['id'];
+    if(isset(self::$is_google_table_id) && !empty(self::$is_google_table_id)) {
+    $sql = "SELECT * from google_cron_setting   
+    where id = :id AND customer_id = :customer_id AND google_id = :google_id";
+    $bind = array(
+        'customer_id' => $customer_id,
+        'id' => $id,
+        'google_id' => self::$is_google_table_id
+    );
+    $response = $this->query($sql, $bind);
+
+    if ($response) {
+        return ["status" => "success", "response" => $response];
+    } else {
+        return ["status" => "false", "response" => $response];
+    }
+    }else{
+        return ["status" => "false", "response" => ""];
+    }
+
+}
+
+
+function getServerTime(){
+    self::getGoogleID();
+    $customer_id = $_SESSION['user']['id'];
+    $sql = "SELECT * from google_cron_setting   
+    where customer_id = :customer_id and google_id = :google_id" ;
+    $bind = array(
+        'customer_id' => $customer_id,
+        'google_id' => self::$is_google_table_id
+    );
+    $response = $this->query($sql, $bind);
+
+    if ($response) {
+        return ["status" => "success", "response" => $response];
+    } else {
+        return ["status" => "false", "response" => $response];
+    }
+
+}
+
+
+function getSortTimeCallLog($report_type, $report_interval, $to_check){
+
+    $total_time_second = self::minToSecond($report_interval);
+    if(isset($report_type) && $report_type == "call_log" || $report_type == "campaign"){   
+        $current =  strtotime(self::$current_time); //We add 1800 seconds because it equals to 30 minutes
+        $timePassedInSeconds = $current - $to_check;
+        $results = ($timePassedInSeconds >= $total_time_second) ? array('report_type' => $report_type, 'report_interval' => $report_interval, 'status'=>true) : [];
+        return $results;
+    }
+    return;
+}
+
+
+
+function updatedCronTime($cron_id){
+    self::getGoogleID();
+    $customer_id = $_SESSION['user']['id'];
+    if(isset(self::$is_google_table_id) && !empty(self::$is_google_table_id)) {
+    $sql_account_setup_update = 'update google_cron_setting set updated_date = NOW() where id = :id AND customer_id = :customer_id and google_id = :google_id';
+    $bind = array(
+    'id' => $cron_id,
+    'customer_id' => $customer_id,
+    'google_id' => self::$is_google_table_id
+    );
+    
+    $result = $this->query($sql_account_setup_update, $bind);
+    if ($result) {
+        return true;
+    }
+    }
+    return false;
+    
+}
+
+
+function add_log($request){
+    
+    self::getGoogleID();
+    $customer_id = $_SESSION['user']['id'];
+    if(isset(self::$is_google_table_id) && !empty(self::$is_google_table_id)) {
+    $insert = "INSERT INTO google_sheet_log (customer_id, google_id, updatedColumns, message_text, request, response, created_date)
+    VALUES (:customer_id, :google_id, :updatedColumns, :message_text, :request, :response, NOW())";
+    
+    $bind = array('customer_id' => $customer_id, 'google_id' => self::$is_google_table_id,
+    'updatedColumns' => ($request['total_column']) ? $request['total_column'] : "", 'message_text' => ($request['message']) ? $request['message'] : "",
+    'request' => json_encode(($request['request']) ? $request['request'] : []), "response" => json_encode(($request['response']) ? $request['response'] : []),
+    );
+
+    $result = $this->query($insert, $bind);
+    if($result)
+    return true;
+    }
+    
+    return false;
+}
+
+function getGoogleID(){
+    $customer_id =  $_SESSION['user']['id'];
+    $sql = "SELECT * from google_account_info where customer_id = :customer_id";
+    $bind=array('customer_id'=>$customer_id);
+    $response = $this->query($sql,$bind);
+    
+    if($response){
+        return self::$is_google_table_id = $response[0]['id'];
+    }
+    
+    return self::$is_google_table_id = false;
+    
+}
+
+//******************** return minute *******************/
+function sotrIntervalTiming($report_interval){              
+
+    if($report_interval == self::$cron_minute)
+        return self::$minute30;
+    elseif($report_interval == self::$cron_hourly)
+        return self::$hour1;
+    elseif($report_interval == self::$cron_daily)
+        return self::$day1;
+    elseif($report_interval == self::$cron_weekly)
+        return self::$week1;
+    elseif($report_interval == self::$cron_monthly)
+        return self::$month1;
+    elseif($report_interval == self::$cron_quaterly)
+        return self::$quater1;
+    elseif($report_interval == self::$cron_yearly)
+        return self::$year1;
+    
+    return false; 
+}
+
+//******************** return second *******************/
+function minToSecond($report_interval){
+
+    if($report_interval == self::$cron_minute)
+        return self::$minute30second; //30 minute
+    if($report_interval == self::$cron_hourly)
+        return self::$hour1second; // 1hour
+    if($report_interval == self::$cron_daily)
+        return self::$day1second; //one day
+    if($report_interval == self::$cron_weekly)
+        return self::$week1second; // one week
+    if($report_interval == self::$cron_monthly)
+        return self::$month1second; // 1 month
+    if($report_interval == self::$cron_quaterly)
+        return self::$quater1second; // 3 month
+    if($report_interval == self::$cron_yearly)
+        return self::$year1second; // 1 year
+
+    return false; 
+}
+
+
+
+
+
+}
+
+
+
+
+
+?>
